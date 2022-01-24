@@ -212,19 +212,19 @@ class MyMonitor13(app_manager.RyuApp):
                 #    self.logger.info('Original BW: ' + str(bw/1.25e+8))
                 #elif str(port_no) == '1':
                 #    rx_bytes = stat.rx_bytes
-                self.calculate_bw(dpid, port_no, stat.tx_bytes, stat.rx_bytes)
+                self.calculate_bw(dpid, port_no, stat.tx_bytes, stat.rx_bytes, stat.duration_sec)
                 self._save_stats(self.port_stats, key, value, 5)
         #self.prev_bw[str(dpid)] = bw
         #self.prev_time = copy.copy(stat.duration_sec)
 
         #self.logger.info(self.port_stats)
 
-    def calculate_bw(self, dpid, port_no, tx_bytes, rx_bytes):
+    def calculate_bw(self, dpid, port_no, tx_bytes, rx_bytes, duration):
         if str(port_no) == '2':
                 #tx_bytes = port_stats[stat][0][0]
                 #rx_bytes = port_stats[stat][0][1]
             self.logger.info('Switch ' + str(dpid))
-            self.bw = 10 - ((tx_bytes - rx_bytes)/self.duration)/1.25e+8
+            self.bw = 0.5 - ((tx_bytes - rx_bytes)/duration)/1.25e+8
             self.logger.info('BW: ' + str(self.bw) + '\n')
             #self.logger.info('Switch: ' + str(stat[0]))
             #self.logger.info('Tx Bytes: ' + str(port_stats[stat][0][0]))

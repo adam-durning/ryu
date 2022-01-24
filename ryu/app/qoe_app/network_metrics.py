@@ -12,12 +12,12 @@ from ryu.topology.switches import LLDPPacket
 import networkx as nx
 import time
 import setting
-
+from operator import attrgetter
 
 CONF = cfg.CONF
 
 
-class NetworkDelayDetector(app_manager.RyuApp):
+class NetworkMetrics(app_manager.RyuApp):
     """
         NetworkDelayDetector is a Ryu app for collecting link delay.
     """
@@ -25,8 +25,8 @@ class NetworkDelayDetector(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
-        super(NetworkDelayDetector, self).__init__(*args, **kwargs)
-        self.name = 'delaydetector'
+        super(NetworkMetrics, self).__init__(*args, **kwargs)
+        self.name = 'networkmetrics'
         self.sending_echo_request_interval = 0.05
         # Get the active object of swicthes and awareness module.
         # So that this module can use their data.
@@ -35,6 +35,9 @@ class NetworkDelayDetector(app_manager.RyuApp):
 
         self.datapaths = {}
         self.echo_latency = {}
+        self.port_features = {}
+        self.free_bandwidth = {}
+        self.port_stats = {}
         self.measure_thread = hub.spawn(self._detector)
 
     @set_ev_cls(ofp_event.EventOFPStateChange,
@@ -64,9 +67,25 @@ class NetworkDelayDetector(app_manager.RyuApp):
                 self.logger.debug("Refresh the shortest_paths")
             except:
                 self.awareness = lookup_service_brick('awareness')
-
+            for dp in self.datapaths.values():
+                self.port_features.setdefault(dp.id, {})
+                self._request_stats(dp)
             self.show_delay_statis()
             hub.sleep(setting.DELAY_DETECTING_PERIOD)
+    
+    def _request_stats(self, datapath):
+        self.logger.debug('send stats request: %016x', datapath.id)
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        req = parser.OFPPortDescStatsRequest(datapath, 0)
+        datapath.send_msg(req)
+
+        req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY)
+        datapath.send_msg(req)
+
+        req = parser.OFPFlowStatsRequest(datapath)
+        datapath.send_msg(req)
 
     def _send_echo_request(self):
         """
@@ -161,6 +180,126 @@ class NetworkDelayDetector(app_manager.RyuApp):
             self.logger.info("\t1-way Delay: %.3f ms" % (delay))
             self.logger.info("\tRound Trip Delay: %.3f ms" % (delay*2))
             pathid += 1 
+
+    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
+    def port_desc_stats_reply_handler(self, ev):
+        """
+            Save port description info.
+        """
+        msg = ev.msg
+        dpid = msg.datapath.id
+        ofproto = msg.datapath.ofproto
+
+        config_dict = {ofproto.OFPPC_PORT_DOWN: "Down",
+                       ofproto.OFPPC_NO_RECV: "No Recv",
+                       ofproto.OFPPC_NO_FWD: "No Farward",
+                       ofproto.OFPPC_NO_PACKET_IN: "No Packet-in"}
+
+        state_dict = {ofproto.OFPPS_LINK_DOWN: "Down",
+                      ofproto.OFPPS_BLOCKED: "Blocked",
+                      ofproto.OFPPS_LIVE: "Live"}
+
+
+        ports = []
+        for p in ev.msg.body:
+            ports.append('port_no=%d hw_addr=%s name=%s config=0x%08x '
+                         'state=0x%08x curr=0x%08x advertised=0x%08x '
+                         'supported=0x%08x peer=0x%08x curr_speed=%d '
+                         'max_speed=%d' %
+                         (p.port_no, p.hw_addr,
+                          p.name, p.config,
+                          p.state, p.curr, p.advertised,
+                          p.supported, p.peer, p.curr_speed,
+                          p.max_speed))
+            #self.logger.info(str(ports[-1]))
+            if p.config in config_dict:
+                config = config_dict[p.config]
+            else:
+                config = "up"
+
+            if p.state in state_dict:
+                state = state_dict[p.state]
+            else:
+                state = "up"
+
+            port_feature = (config, state, p.curr_speed)
+            self.port_features[dpid][p.port_no] = port_feature
+
+    @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
+    def _port_stats_reply_handler(self, ev):
+        """
+            Save port's stats info
+            Calculate port's speed and save it.
+        """
+        body = ev.msg.body
+        dpid = ev.msg.datapath.id
+        #self.stats['port'][dpid] = body
+        self.free_bandwidth.setdefault(dpid, {})
+
+        for stat in sorted(body, key=attrgetter('port_no')):
+            port_no = stat.port_no
+            if port_no != ofproto_v1_3.OFPP_LOCAL:
+                key = (dpid, port_no)
+                value = (stat.tx_bytes, stat.rx_bytes, stat.rx_errors,
+                         stat.duration_sec, stat.duration_nsec)
+
+                self._save_stats(self.port_stats, key, value, 5)
+
+                # Get port speed.
+                pre = 0
+                period = setting.DELAY_DETECTING_PERIOD
+                tmp = self.port_stats[key]
+                if len(tmp) > 1:
+                    pre = tmp[-2][0] + tmp[-2][1]
+                    period = self._get_period(tmp[-1][3], tmp[-1][4],
+                                              tmp[-2][3], tmp[-2][4])
+
+                speed = self._get_speed(
+                    self.port_stats[key][-1][0] + self.port_stats[key][-1][1],
+                    pre, period)
+
+                #self._save_stats(self.port_speed, key, speed, 5)
+                self._save_freebandwidth(dpid, port_no, speed)
+
+    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
+    def _flow_stats_reply_handler(self, ev):
+        
+
+    def _save_stats(self, _dict, key, value, length):
+        if key not in _dict:
+            _dict[key] = []
+        _dict[key].append(value)
+
+        if len(_dict[key]) > length:
+            _dict[key].pop(0)
+
+    def _save_freebandwidth(self, dpid, port_no, speed):
+        # Calculate free bandwidth of port and save it.
+        port_state = self.port_features.get(dpid).get(port_no)
+        if port_state:
+            capacity = port_state[2]
+            curr_bw = self._get_free_bw(capacity, speed)
+            self.free_bandwidth[dpid].setdefault(port_no, None)
+            self.free_bandwidth[dpid][port_no] = curr_bw
+            self.logger.info('('+str(dpid)+','+str(port_no)+') = '+str(curr_bw))
+        else:
+            self.logger.info("Fail in getting port state")   
+
+    def _get_free_bw(self, capacity, speed):
+        # BW:Mbit/s
+        return max(capacity/10**3 - speed * 8/10**6, 0)
+
+    def _get_speed(self, now, pre, period):
+        if period:
+            return (now - pre) / (period)
+        else:
+            return 0
+ 
+    def _get_time(self, sec, nsec):
+        return sec + nsec / (10 ** 9)
+
+    def _get_period(self, n_sec, n_nsec, p_sec, p_nsec):
+        return self._get_time(n_sec, n_nsec) - self._get_time(p_sec, p_nsec)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
