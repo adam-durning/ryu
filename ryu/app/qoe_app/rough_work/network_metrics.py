@@ -12,7 +12,7 @@ from operator import attrgetter
 import networkx as nx
 import time
 import setting
-import copy
+import json
 
 CONF = cfg.CONF
 
@@ -130,7 +130,7 @@ class NetworkMetrics(app_manager.RyuApp):
             delay = ((fwd_delay + re_delay - src_latency - dst_latency)/2)*1000
             return max(delay, 0)
         except:
-            return 0
+            return float('inf')
 
     def _save_lldp_delay(self, src=0, dst=0, lldpdelay=0):
         try:
@@ -267,20 +267,17 @@ class NetworkMetrics(app_manager.RyuApp):
         path_pl = []
         path_delay = []
         index = 1
-        route = copy.copy(path)
-        route.pop(0)
-        route.pop(-1)
         if len(self.discovery.network) == 0:
             return
-        for switch in route:
-            if switch == route[-1]:
+        for switch in path:
+            if switch == path[-1]:
                 break
-            link_bw = self.discovery.network[switch][route[index]]['BW']
-            if 'PL' in self.discovery.network[switch][route[index]]:
-                link_pl = self.discovery.network[switch][route[index]]['PL']
+            link_bw = self.discovery.network[switch][path[index]]['BW']
+            if 'PL' in self.discovery.network[switch][path[index]]:
+                link_pl = self.discovery.network[switch][path[index]]['PL']
             else:
                 link_pl = 0
-            link_delay = self.discovery.network[switch][route[index]]['delay']
+            link_delay = self.discovery.network[switch][path[index]]['delay']
             path_bw.append(link_bw)
             path_pl.append(link_pl)
             path_delay.append(link_delay)

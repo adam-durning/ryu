@@ -12,7 +12,7 @@ from operator import attrgetter
 import networkx as nx
 import time
 import setting
-import copy
+import json
 
 CONF = cfg.CONF
 
@@ -26,15 +26,16 @@ class NetworkMetrics(app_manager.RyuApp):
 
     def __init__(self, *args, **kwargs):
         super(NetworkMetrics, self).__init__(*args, **kwargs)
-        self.name = 'network_metrics'
+        self.name = 'networkmetrics'
         self.sending_echo_request_interval = 0.05
         # Get the active object of swicthes and discovery module.
         # So that this module can use their data.
         self.sw_module = lookup_service_brick('switches')
-        self.discovery = lookup_service_brick('network_info')
+        self.discovery = lookup_service_brick('discovery')
 
         self.datapaths = {}
         self.echo_latency = {}
+        #self.port_features = {}
         self.free_bandwidth = {}
         self.port_stats = {}
         self.flow_stats = {}
@@ -61,18 +62,24 @@ class NetworkMetrics(app_manager.RyuApp):
         """
         while True:
             self._send_echo_request()
+            #self.create_path_delay()
             for dp in self.datapaths.values():
+                #self.port_features.setdefault(dp.id, {})
                 self._request_stats(dp)
             
             hub.sleep(setting.DELAY_DETECTING_PERIOD)
             self._save_link_delay()
             self._save_link_pl() 
             self._save_link_bw() 
+            self.show_metrics()
  
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+
+        #req = parser.OFPPortDescStatsRequest(datapath, 0)
+        #datapath.send_msg(req)
 
         req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY)
         datapath.send_msg(req)
@@ -127,10 +134,10 @@ class NetworkMetrics(app_manager.RyuApp):
             re_delay = self.discovery.network[dst][src]['lldpdelay']
             src_latency = self.echo_latency[src]
             dst_latency = self.echo_latency[dst]
-            delay = ((fwd_delay + re_delay - src_latency - dst_latency)/2)*1000
+            delay = ((fwd_delay + re_delay - src_latency - dst_latency)/2 )* 1000
             return max(delay, 0)
         except:
-            return 0
+            return float('inf')
 
     def _save_lldp_delay(self, src=0, dst=0, lldpdelay=0):
         try:
@@ -156,6 +163,51 @@ class NetworkMetrics(app_manager.RyuApp):
                 self.discovery = lookup_service_brick('discovery')
             return
 
+
+
+#    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
+#    def port_desc_stats_reply_handler(self, ev):
+#        """
+#            Save port description info.
+#        """
+#        msg = ev.msg
+#        dpid = msg.datapath.id
+#        ofproto = msg.datapath.ofproto
+#
+#        config_dict = {ofproto.OFPPC_PORT_DOWN: "Down",
+#                       ofproto.OFPPC_NO_RECV: "No Recv",
+#                       ofproto.OFPPC_NO_FWD: "No Farward",
+#                       ofproto.OFPPC_NO_PACKET_IN: "No Packet-in"}
+#
+#        state_dict = {ofproto.OFPPS_LINK_DOWN: "Down",
+#                      ofproto.OFPPS_BLOCKED: "Blocked",
+#                      ofproto.OFPPS_LIVE: "Live"}
+#
+#
+#        ports = []
+#        for p in ev.msg.body:
+#            ports.append('port_no=%d hw_addr=%s name=%s config=0x%08x '
+#                         'state=0x%08x curr=0x%08x advertised=0x%08x '
+#                         'supported=0x%08x peer=0x%08x curr_speed=%d '
+#                         'max_speed=%d' %
+#                         (p.port_no, p.hw_addr,
+#                          p.name, p.config,
+#                          p.state, p.curr, p.advertised,
+#                          p.supported, p.peer, p.curr_speed,
+#                          p.max_speed))
+#            if p.config in config_dict:
+#                config = config_dict[p.config]
+#            else:
+#                config = "up"
+#
+#            if p.state in state_dict:
+#                state = state_dict[p.state]
+#            else:
+#                state = "up"
+#
+#            port_feature = (config, state, p.curr_speed)
+#            self.port_features[dpid][p.port_no] = port_feature
+
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
         """
@@ -170,8 +222,7 @@ class NetworkMetrics(app_manager.RyuApp):
             if port_no != ofproto_v1_3.OFPP_LOCAL:
                 key = (dpid, port_no)
                 value = (stat.tx_bytes, stat.rx_bytes, stat.rx_errors,
-                         stat.duration_sec, stat.duration_nsec,
-                         stat.tx_packets, stat.rx_packets)
+                         stat.duration_sec, stat.duration_nsec, stat.tx_packets, stat.rx_packets)
                 self._save_stats(self.port_stats, key, value, 5)
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
@@ -188,33 +239,37 @@ class NetworkMetrics(app_manager.RyuApp):
             self._save_stats(self.flow_stats[dpid], key, value, 1)
     
     def _save_link_bw(self):
+        self.logger.info('########## Bandwidth ##########')
         links = self.discovery.link_to_port
         for link in links:
             src_switch = link[0]
             dst_switch = link[1]
             src_port = links[link][0]
-            prev_bytes = 0
+            dst_port = links[link][1]
+            prev = 0
             period = setting.DELAY_DETECTING_PERIOD
             if len(self.port_stats) != 0:
-                prev_stats = self.port_stats[src_switch, src_port]
-                if len(prev_stats) > 1:
-                    prev_bytes = prev_stats[-2][0] + prev_stats[-2][1]
-                    period =  self._get_period(prev_stats[-1][3], 
-                                               prev_stats[-1][4],
-                                               prev_stats[-2][3], 
-                                               prev_stats[-2][4]) 
+                tmp = self.port_stats[src_switch, src_port]
+                if len(tmp) > 1:
+                    prev = tmp[-2][0] + tmp[-2][1]
+                    period =  self._get_period(tmp[-1][3], tmp[-1][4],
+                                              tmp[-2][3], tmp[-2][4]) 
                 speed = self._get_speed(
                     self.port_stats[src_switch, src_port][-1][0] + 
                     self.port_stats[src_switch, src_port][-1][1],
-                    prev_bytes, period)
+                    prev, period)
                 
                 capacity = 500000
-                self.discovery.network[src_switch][dst_switch]['BW'] = (
-                                            self._get_free_bw(capacity, speed))
+                self.discovery.network[src_switch][dst_switch]['BW'] = self._get_free_bw(capacity, 
+                                                                                            speed)
+                self.logger.info(' Link %s, BW = %s' % (str(link),
+                                        str(self.discovery.network[src_switch][dst_switch]['BW'])))
     
     def _save_link_pl(self):
         links = self.discovery.link_to_port
+        self.logger.info("########## Packet Loss ##########")
         for link in links:
+            self.logger.info(len(self.flow_stats))
             if len(self.flow_stats) != 0:
                 src_switch = link[0]
                 dst_switch = link[1]
@@ -230,11 +285,27 @@ class NetworkMetrics(app_manager.RyuApp):
                 for key in self.flow_stats[dst_switch]:
                     if key[0] == dst_port:
                         rx_packets+= self.flow_stats[dst_switch][key][-1]    
-                if tx_packets == 0: 
-                    pl = 0
-                else:
-                    pl = (tx_packets - rx_packets)/tx_packets
-                self.discovery.network[src_switch][dst_switch]['PL'] = pl
+                if tx_packets == 0: continue
+                self.discovery.network[src_switch][dst_switch]['PL'] = (tx_packets - rx_packets)/tx_packets
+    
+    def _save_link_pl_port(self):
+        links = self.discovery.link_to_port
+        self.logger.info("########## Packet Loss ##########")
+        for link in links:
+            if len(self.port_stats) != 0:
+                src_port = links[link][0]
+                dst_port = links[link][1]
+                if (len(self.port_stats[link[0], src_port][-1]) == 0 and 
+                    len(self.port_stats[link[1], dst_port][-1]) == 0):
+                    continue
+                self.logger.info("Link is: (%s,%s) - > (%s, %s)" % (str(link[0]), 
+                                  str(links[link][0]), str(link[1]), str(links[link][1])))
+                tx_packets = self.port_stats[link[0], src_port][-1][5]
+                rx_packets = self.port_stats[link[1], dst_port][-1][6]
+                pl = (tx_packets - rx_packets)/tx_packets
+                self.logger.info('tx_packets = ' + str(tx_packets))
+                self.logger.info("rx_packets = " + str(rx_packets))
+                self.logger.info("packet loss = " + str(pl*100) + '%')
                 
     def _save_stats(self, _dict, key, value, length):
         if key not in _dict:
@@ -243,6 +314,7 @@ class NetworkMetrics(app_manager.RyuApp):
 
         if len(_dict[key]) > length:
             _dict[key].pop(0)
+
 
     def _get_free_bw(self, capacity, speed):
         # BW:Mbit/s
@@ -259,34 +331,6 @@ class NetworkMetrics(app_manager.RyuApp):
 
     def _get_period(self, n_sec, n_nsec, p_sec, p_nsec):
         return self._get_time(n_sec, n_nsec) - self._get_time(p_sec, p_nsec)
-
-    def get_path_metrics(self, path):
-        """  example path : [1, 2, 4, 5]""" 
-        metrics = []
-        path_bw = []
-        path_pl = []
-        path_delay = []
-        index = 1
-        route = copy.copy(path)
-        route.pop(0)
-        route.pop(-1)
-        if len(self.discovery.network) == 0:
-            return
-        for switch in route:
-            if switch == route[-1]:
-                break
-            link_bw = self.discovery.network[switch][route[index]]['BW']
-            if 'PL' in self.discovery.network[switch][route[index]]:
-                link_pl = self.discovery.network[switch][route[index]]['PL']
-            else:
-                link_pl = 0
-            link_delay = self.discovery.network[switch][route[index]]['delay']
-            path_bw.append(link_bw)
-            path_pl.append(link_pl)
-            path_delay.append(link_delay)
-            index+=1
-        metrics = metrics + path_bw + path_delay + path_pl
-        return metrics
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):

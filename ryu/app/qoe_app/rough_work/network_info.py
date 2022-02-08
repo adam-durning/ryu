@@ -17,6 +17,11 @@ class NetworkInfo(app_manager.RyuApp):
         self.links = []
         self.link_to_port = {} 
 
+    def _discover(self):
+        while True:
+            self.show_topo()
+            hub.sleep(5)
+
     def get_topo(self, ev):
      #   print ("topology changed!!!!!!!!!!!!!!!!!!11")
         switch_list = get_switch(self.topology_api_app, None)
@@ -35,7 +40,7 @@ class NetworkInfo(app_manager.RyuApp):
         #self.create_interior_links(links)
         #self.create_access_ports()
         #self.get_graph(self.link_to_port.keys())
-        self.initialize_metrics(self.links) 
+    
         return self.network
 
     def create_interior_links(self, link_list):
@@ -48,12 +53,3 @@ class NetworkInfo(app_manager.RyuApp):
             self.link_to_port[
                 (src.dpid, dst.dpid)] = (src.port_no, dst.port_no)
 
-    def initialize_metrics(self, links):
-        keys = set(['BW', 'delay', 'PL'])
-        for link in self.network.edges():
-            if keys.issubset(self.network[link[0]][link[1]].keys()):#'BW' in self.network[link[0]][link[1]]:
-                continue
-            else:
-                self.network[link[0]][link[1]]['BW'] = 0   
-                self.network[link[0]][link[1]]['PL'] = 0   
-                self.network[link[0]][link[1]]['delay'] = 0   
