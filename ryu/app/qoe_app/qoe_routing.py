@@ -10,14 +10,15 @@
 #-------------------------------------------------------------------------------
 from os import link
 from ryu.base import app_manager
+from ryu.base.app_manager import lookup_service_brick
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER , MAIN_DISPATCHER
+from ryu.controller.handler import CONFIG_DISPATCHER , MAIN_DISPATCHER, DEAD_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
-from ryu.lib.packet import ethernet
+from ryu.lib.packet import ethernet, ether_types
 from ryu.topology import event
-from ryu.topology.api import get_switch, get_link
+from ryu.topology.switches import Switches
 import networkx as nx
 import signal
 import network_info, network_metrics
@@ -26,8 +27,9 @@ from itertools import islice
 import pickle
 import pandas
 import numpy as np
-
-
+import time
+import openpyxl as op
+import pandas
 
 
 
@@ -53,11 +55,26 @@ class QoeForwarding(app_manager.RyuApp):
         self.topology_api_app = self
         self.paths = {}
         self.network_info= kwargs["network_info"]
+        self.network = self.network_info.network
         self.ml_model = kwargs["ml_model"]
         self.delay_detector = kwargs["network_metrics"]
         self.path_list = []
-        self.link_metrics_list = [[8,7,200,100,0.5,0.2],[6, 9, 50, 132, 0.1, 0.1]]
+        self.wb = op.Workbook()
+        self.sheet = self.wb.active
+        self.datapaths = {}
 
+    @set_ev_cls(ofp_event.EventOFPStateChange,
+                [MAIN_DISPATCHER, DEAD_DISPATCHER])
+    def _state_change_handler(self, ev):
+        datapath = ev.datapath
+        if ev.state == MAIN_DISPATCHER:
+            if datapath.id not in self.datapaths:
+                self.logger.debug('register datapath: %016x', datapath.id)
+                self.datapaths[datapath.id] = datapath
+        elif ev.state == DEAD_DISPATCHER:
+            if datapath.id in self.datapaths:
+                self.logger.debug('unregister datapath: %016x', datapath.id)
+                del self.datapaths[datapath.id]
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self,ev):
@@ -82,7 +99,8 @@ class QoeForwarding(app_manager.RyuApp):
         mod = parser.OFPFlowMod(datapath=datapath, priority= priority, match = match, instructions= inst)
         datapath.send_msg(mod)
 
-    events = [event.EventSwitchEnter]
+    events = [event.EventLinkAdd, event.EventSwitchLeave, 
+              event.EventLinkAdd, event.EventLinkDelete]
     # when the switch enters, or other change of the network happens, network topology information get updated
     @set_ev_cls(events)
     def get_topology(self, ev):
@@ -103,12 +121,16 @@ class QoeForwarding(app_manager.RyuApp):
         qoe_list=[]
         link_metrics =[]
         self.graph  =  graph
+        time_1 = time.time()
         self.path_list =  list(islice(nx.shortest_simple_paths(graph, source=src,
                                              target=dst),2))                            # break the path
-
+        time_2 = time.time()
+        self.sheet.append([time_2-time_1])
+        self.wb.save('paths.xlsx')
+        #print("Time taken to get paths : %f" % (time_2-time_1))
         self.model = self.ml_model.filename
         i = 1
-        print ("++++++++++available paths are +++++++++++++++++++",self.path_list)
+        #print ("++++++++++available paths are +++++++++++++++++++",self.path_list)
         for path in self.path_list:
           
             #link_metrics = self.link_metrics_list[self.path_list.index(path)]
@@ -119,11 +141,10 @@ class QoeForwarding(app_manager.RyuApp):
             i+=1
         
 
-        print ("@@@@@@@@@@@@@@@@@@@@@@@@@ qoe list is: @@@@@@@@@@@@@@@@",qoe_list)
+        #print ("@@@@@@@@@@@@@@@@@@@@@@@@@ qoe list is: @@@@@@@@@@@@@@@@",qoe_list)
       
 
         self.selected_path = self.path_list[qoe_list.index(max(qoe_list))]  # the selected path is the path with max qoe predicted
-
         return self.selected_path
 
 
@@ -146,7 +167,7 @@ class QoeForwarding(app_manager.RyuApp):
 
         #    path = self.paths[src][dst]
             next_hop = path[path.index(dpid)+1]
-            print ("----------------path-----------------:", path)
+            #print ("----------------path-----------------:", path)
             out_port= self.network[dpid][next_hop]['port']
         else:
             out_port = datapath.ofproto.OFPP_FLOOD
@@ -166,15 +187,15 @@ class QoeForwarding(app_manager.RyuApp):
         in_port = msg.match["in_port"]
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols( ethernet.ethernet)[0]
+        if eth.ethertype == ether_types.ETH_TYPE_LLDP:
+            # ignore lldp packet
+            return
         src = eth.src
         dst = eth.dst
-
         dpid = datapath.id
         self.mac_to_port.setdefault( dpid , {})
-      #  self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
         self.mac_to_port[dpid][src] = in_port
-       
-
+ 
         out_port = self.get_out_port(datapath, src, dst, in_port)
         actions = [parser.OFPActionOutput(out_port)]
 

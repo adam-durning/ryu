@@ -13,7 +13,7 @@ import networkx as nx
 import time
 import setting
 import copy
-
+import json
 CONF = cfg.CONF
 
 class NetworkMetrics(app_manager.RyuApp):
@@ -276,10 +276,7 @@ class NetworkMetrics(app_manager.RyuApp):
             if switch == route[-1]:
                 break
             link_bw = self.discovery.network[switch][route[index]]['BW']
-            if 'PL' in self.discovery.network[switch][route[index]]:
-                link_pl = self.discovery.network[switch][route[index]]['PL']
-            else:
-                link_pl = 0
+            link_pl = self.discovery.network[switch][route[index]]['PL']
             link_delay = self.discovery.network[switch][route[index]]['delay']
             path_bw.append(link_bw)
             path_pl.append(link_pl)
@@ -325,29 +322,3 @@ class NetworkMetrics(app_manager.RyuApp):
         dictionary = nx.to_dict_of_dicts(self.discovery.network)
         pretty = json.dumps(dictionary, indent=4)
         print(pretty)
-
-    #def create_path_delay(self):
-    #    paths = self.awareness.get_paths(1,3)
-    #    pathid = 1;
-    #    for path in paths:
-    #        path_len = len(path)
-    #        delay = 0
-    #        for (index, switch) in enumerate(path):
-    #            if index == path_len-1:
-    #                break
-    #            else:
-    #                delay += self.awareness.network[switch][path[index+1]]['delay']
-    #        pathid += 1 
-    #        return delay
-
-    #def _save_freebandwidth(self, dpid, port_no, speed):
-    #    # Calculate free bandwidth of port and save it.
-    #    port_state = self.port_features.get(dpid).get(port_no)
-    #    if port_state:
-    #        capacity = 500000
-    #        curr_bw = self._get_free_bw(capacity, speed)
-    #        self.free_bandwidth[dpid].setdefault(port_no, None)
-    #        self.free_bandwidth[dpid][port_no] = curr_bw
-    #        self.logger.info('('+str(dpid)+','+str(port_no)+') = '+str(curr_bw))
-    #    else:
-    #        self.logger.info("Fail in getting port state")   
