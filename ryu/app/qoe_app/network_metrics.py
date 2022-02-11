@@ -64,10 +64,12 @@ class NetworkMetrics(app_manager.RyuApp):
             for dp in self.datapaths.values():
                 self._request_stats(dp)
             
-            hub.sleep(setting.DELAY_DETECTING_PERIOD)
+            hub.sleep(1)
             self._save_link_delay()
             self._save_link_pl() 
             self._save_link_bw() 
+            self.show_metrics()
+            hub.sleep(setting.DELAY_DETECTING_PERIOD)
  
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)

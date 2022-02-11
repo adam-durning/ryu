@@ -99,7 +99,7 @@ class QoeForwarding(app_manager.RyuApp):
         mod = parser.OFPFlowMod(datapath=datapath, priority= priority, match = match, instructions= inst)
         datapath.send_msg(mod)
 
-    events = [event.EventLinkAdd, event.EventSwitchLeave, 
+    events = [event.EventSwitchEnter, event.EventSwitchLeave, 
               event.EventLinkAdd, event.EventLinkDelete]
     # when the switch enters, or other change of the network happens, network topology information get updated
     @set_ev_cls(events)
