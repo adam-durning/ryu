@@ -13,7 +13,7 @@ import networkx as nx
 import time
 import setting
 import copy
-
+import json
 CONF = cfg.CONF
 
 class NetworkMetrics(app_manager.RyuApp):
@@ -54,20 +54,25 @@ class NetworkMetrics(app_manager.RyuApp):
                 del self.datapaths[datapath.id]
 
     def _detector(self):
+        print ("detecter function is trigered --------------------------------------------------------------------------------------------------------------------------")
         """
             Metric detecting functon.
             Send echo request and calculate link delay, packet loss, and 
             bandwidth periodically
         """
         while True:
+            
             self._send_echo_request()
             for dp in self.datapaths.values():
                 self._request_stats(dp)
             
-            hub.sleep(setting.DELAY_DETECTING_PERIOD)
+            hub.sleep(1)
+            
             self._save_link_delay()
             self._save_link_pl() 
             self._save_link_bw() 
+            self.show_metrics()
+            hub.sleep(setting.DELAY_DETECTING_PERIOD)
  
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)
@@ -211,6 +216,7 @@ class NetworkMetrics(app_manager.RyuApp):
                 capacity = 500000
                 self.discovery.network[src_switch][dst_switch]['BW'] = (
                                             self._get_free_bw(capacity, speed))
+                
     
     def _save_link_pl(self):
         links = self.discovery.link_to_port
@@ -233,8 +239,9 @@ class NetworkMetrics(app_manager.RyuApp):
                 if tx_packets == 0: 
                     pl = 0
                 else:
-                    pl = (tx_packets - rx_packets)/tx_packets
+                    pl = (tx_packets - rx_packets)*100/tx_packets
                 self.discovery.network[src_switch][dst_switch]['PL'] = pl
+                print ("insdie the link collection the packet loss is",tx_packets,pl)
                 
     def _save_stats(self, _dict, key, value, length):
         if key not in _dict:
@@ -276,16 +283,15 @@ class NetworkMetrics(app_manager.RyuApp):
             if switch == route[-1]:
                 break
             link_bw = self.discovery.network[switch][route[index]]['BW']
-            if 'PL' in self.discovery.network[switch][route[index]]:
-                link_pl = self.discovery.network[switch][route[index]]['PL']
-            else:
-                link_pl = 0
+            link_pl = self.discovery.network[switch][route[index]]['PL']
             link_delay = self.discovery.network[switch][route[index]]['delay']
+
             path_bw.append(link_bw)
             path_pl.append(link_pl)
             path_delay.append(link_delay)
             index+=1
         metrics = metrics + path_bw + path_delay + path_pl
+        print ("+++++++++++++++++++++++++metrics collection is triggrtrf hrtr", metrics)
         return metrics
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -325,29 +331,3 @@ class NetworkMetrics(app_manager.RyuApp):
         dictionary = nx.to_dict_of_dicts(self.discovery.network)
         pretty = json.dumps(dictionary, indent=4)
         print(pretty)
-
-    #def create_path_delay(self):
-    #    paths = self.awareness.get_paths(1,3)
-    #    pathid = 1;
-    #    for path in paths:
-    #        path_len = len(path)
-    #        delay = 0
-    #        for (index, switch) in enumerate(path):
-    #            if index == path_len-1:
-    #                break
-    #            else:
-    #                delay += self.awareness.network[switch][path[index+1]]['delay']
-    #        pathid += 1 
-    #        return delay
-
-    #def _save_freebandwidth(self, dpid, port_no, speed):
-    #    # Calculate free bandwidth of port and save it.
-    #    port_state = self.port_features.get(dpid).get(port_no)
-    #    if port_state:
-    #        capacity = 500000
-    #        curr_bw = self._get_free_bw(capacity, speed)
-    #        self.free_bandwidth[dpid].setdefault(port_no, None)
-    #        self.free_bandwidth[dpid][port_no] = curr_bw
-    #        self.logger.info('('+str(dpid)+','+str(port_no)+') = '+str(curr_bw))
-    #    else:
-    #        self.logger.info("Fail in getting port state")   

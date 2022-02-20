@@ -3,6 +3,7 @@ from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 import networkx as nx
 from ryu.topology.api import get_switch, get_link
+from ryu.topology import event, switches
 
 class NetworkInfo(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -12,8 +13,6 @@ class NetworkInfo(app_manager.RyuApp):
         self.name = "network_info"
         self.network = nx.DiGraph()
         self.topology_api_app = self
-        self.paths = []
-        self.switches=[]
         self.links = []
         self.link_to_port = {} 
 
@@ -29,13 +28,9 @@ class NetworkInfo(app_manager.RyuApp):
         self.network.add_edges_from(self.links)
         self.links = [(link.dst.dpid, link.src.dpid, {'port':link.dst.port_no}) for link in link_list]
         self.network.add_edges_from(self.links)
-        print("******************links are:***********",self.links)
 
-        #links = get_link(self.topology_api_app, None)
-        #self.create_interior_links(links)
-        #self.create_access_ports()
-        #self.get_graph(self.link_to_port.keys())
-        self.initialize_metrics(self.links) 
+        self.create_interior_links(link_list)
+        self.initialize_metrics() 
         return self.network
 
     def create_interior_links(self, link_list):
@@ -48,10 +43,10 @@ class NetworkInfo(app_manager.RyuApp):
             self.link_to_port[
                 (src.dpid, dst.dpid)] = (src.port_no, dst.port_no)
 
-    def initialize_metrics(self, links):
+    def initialize_metrics(self):
         keys = set(['BW', 'delay', 'PL'])
         for link in self.network.edges():
-            if keys.issubset(self.network[link[0]][link[1]].keys()):#'BW' in self.network[link[0]][link[1]]:
+            if keys.issubset(self.network[link[0]][link[1]].keys()):                
                 continue
             else:
                 self.network[link[0]][link[1]]['BW'] = 0   
