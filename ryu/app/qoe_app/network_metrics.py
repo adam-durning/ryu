@@ -38,7 +38,7 @@ class NetworkMetrics(app_manager.RyuApp):
         self.port_stats = {}
         self.flow_stats = {}
         self.delete_flows = False
-        self.delete_count = 5
+        self.delete_count = 3
         self.measure_thread = hub.spawn(self._detector)
     
     """
@@ -194,7 +194,8 @@ class NetworkMetrics(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
-        dpid = ev.msg.datapath.id
+        datapath = ev.msg.datapath
+        dpid = datapath.id
         self.flow_stats.setdefault(dpid, {})
         for stat in sorted([flow for flow in body if flow.priority == 1],
                            key=lambda flow: (flow.match.get('in_port'),
@@ -202,19 +203,18 @@ class NetworkMetrics(app_manager.RyuApp):
             key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
             value = (stat.packet_count)
             self._save_stats(self.flow_stats[dpid], key, value, 1)
-            self._check_delete_conditions(value, 1000)
+            self._check_delete_conditions(datapath, value, 1000)
     
     """
         Checks if the conditions for deleting the flow stats are met.
         This is only used in the flow stats initialization step.
     """
-    def _check_delete_conditions(value, packet_count):
+    def _check_delete_conditions(self, datapath, value, packet_count):
         num_of_paths = len(self.discovery.paths)
         num_of_nodes = len(self.discovery.network.nodes())
         
         if (value >= packet_count and 
            (self.delete_count < num_of_paths*num_of_nodes)):
-            datapath = ev.msg.datapath
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
             match = parser.OFPMatch()
