@@ -18,7 +18,7 @@ CONF = cfg.CONF
 
 class NetworkMetrics(app_manager.RyuApp):
     """
-        NetworkMetrics is a module for getting the link delay, bandwidth, and 
+        NetworkMetrics is a module for getting the link delay, bandwidth, and   
         packet loss.
     """
 
@@ -32,14 +32,19 @@ class NetworkMetrics(app_manager.RyuApp):
         # So that this module can use their data.
         self.sw_module = lookup_service_brick('switches')
         self.discovery = lookup_service_brick('network_info')
-
         self.datapaths = {}
         self.echo_latency = {}
         self.free_bandwidth = {}
         self.port_stats = {}
         self.flow_stats = {}
+        self.delete_flows = False
+        self.delete_count = 5
         self.measure_thread = hub.spawn(self._detector)
-
+    
+    """
+        Handles the state change and registers the switches to the datapaths
+        list.
+    """
     @set_ev_cls(ofp_event.EventOFPStateChange,
                 [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def _state_change_handler(self, ev):
@@ -53,24 +58,26 @@ class NetworkMetrics(app_manager.RyuApp):
                 self.logger.debug('Unregister datapath: %016x', datapath.id)
                 del self.datapaths[datapath.id]
 
+    """
+        Metric detecting functon.
+        Send echo request and calculate link delay, packet loss, and 
+        bandwidth periodically
+    """
     def _detector(self):
-        """
-            Metric detecting functon.
-            Send echo request and calculate link delay, packet loss, and 
-            bandwidth periodically
-        """
         while True:
             self._send_echo_request()
             for dp in self.datapaths.values():
                 self._request_stats(dp)
-            
             hub.sleep(1)
             self._save_link_delay()
             self._save_link_pl() 
             self._save_link_bw() 
-            self.show_metrics()
+            self._show_link_metrics()
             hub.sleep(setting.DELAY_DETECTING_PERIOD)
- 
+
+    """
+        This fucntion sends the flow and port stats requests for each datapath.
+    """ 
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)
         ofproto = datapath.ofproto
@@ -82,10 +89,10 @@ class NetworkMetrics(app_manager.RyuApp):
         req = parser.OFPFlowStatsRequest(datapath)
         datapath.send_msg(req)
 
+    """
+        Function for sending and echo request to calculate link delay.
+    """
     def _send_echo_request(self):
-        """
-            Seng echo request msg to datapath.
-        """
         for datapath in self.datapaths.values():
             parser = datapath.ofproto_parser
             echo_req = parser.OFPEchoRequest(datapath, 
@@ -95,15 +102,16 @@ class NetworkMetrics(app_manager.RyuApp):
             # Important! Don't send echo request together, Because it will
             # generate a lot of echo reply almost in the same time.
             # which will generate a lot of delay of waiting in queue
-            # when processing echo reply in echo_reply_handler.
+            # when processing echo reply in _echo_reply_handler.
 
             hub.sleep(self.sending_echo_request_interval)
 
+    """
+        Function that handles the echo replies. The echo latency of the links is
+        calculated here.
+    """
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
-    def echo_reply_handler(self, ev):
-        """
-            Handle the echo reply msg, and get the latency of link.
-        """
+    def _echo_reply_handler(self, ev):
         now_timestamp = time.time()
         try:
             latency = now_timestamp - eval(ev.msg.data)
@@ -111,29 +119,31 @@ class NetworkMetrics(app_manager.RyuApp):
         except:
             return
 
-    def get_delay(self, src, dst):
-        """
-            Get link delay.
-                        Controller
-                        |        |
-        src echo latency|        |dst echo latency
-                        |        |
-                   SwitchA-------SwitchB
-                        
-                    fwd_delay--->
-                        <----reply_delay
-            delay = (forward delay + reply delay - src datapath's echo latency
-        """
+    """
+        Get link delay.
+                            Controller
+                            |        |
+            src echo latency|        |dst echo latency
+                            |        |
+                       SwitchA-------SwitchB
+                            
+                        fwd_delay--->
+                            <----reply_delay
+    """
+    def _get_delay(self, src, dst):
         try:
             fwd_delay = self.discovery.network[src][dst]['lldpdelay']
-            re_delay = self.discovery.network[dst][src]['lldpdelay']
+            reply_delay = self.discovery.network[dst][src]['lldpdelay']
             src_latency = self.echo_latency[src]
             dst_latency = self.echo_latency[dst]
-            delay = ((fwd_delay + re_delay - src_latency - dst_latency)/2)*1000
+            delay = ((fwd_delay + reply_delay- src_latency - dst_latency)/2)*1000
             return max(delay, 0)
         except:
             return 0
 
+    """
+        Saving the lldp delay information to the network graph.
+    """
     def _save_lldp_delay(self, src=0, dst=0, lldpdelay=0):
         try:
             self.discovery.network[src][dst]['lldpdelay'] = lldpdelay
@@ -142,22 +152,25 @@ class NetworkMetrics(app_manager.RyuApp):
                 self.discovery = lookup_service_brick('discovery')
             return
 
+    """
+        Get the link delay and save it to the network graph object.
+    """
     def _save_link_delay(self):
-        """
-            Create link delay data, and save it into graph object.
-        """
         try:
             for src in self.discovery.network:
                 for dst in self.discovery.network[src]:
                     if src == dst:
                         continue
-                    delay = self.get_delay(src, dst)
-                    self.discovery.network[src][dst]['delay'] = delay
+                    delay = self._get_delay(src, dst)
+                    self.discovery.network[src][dst]['delay'] = delay - 1
         except:
             if self.discovery is None:
                 self.discovery = lookup_service_brick('discovery')
             return
-
+    
+    """
+        Handles the port stats replies
+    """
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
         """
@@ -175,20 +188,73 @@ class NetworkMetrics(app_manager.RyuApp):
                          stat.duration_sec, stat.duration_nsec,
                          stat.tx_packets, stat.rx_packets)
                 self._save_stats(self.port_stats, key, value, 5)
-
+    """
+        Handles the flow stats replies.
+    """
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
         dpid = ev.msg.datapath.id
         self.flow_stats.setdefault(dpid, {})
-        #self.outward_flow_stats.setdefault(dpid, {})
         for stat in sorted([flow for flow in body if flow.priority == 1],
                            key=lambda flow: (flow.match.get('in_port'),
                                              flow.match.get('ipv4_dst'))):
             key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
             value = (stat.packet_count)
             self._save_stats(self.flow_stats[dpid], key, value, 1)
+            self._check_delete_conditions(value, 1000)
     
+    """
+        Checks if the conditions for deleting the flow stats are met.
+        This is only used in the flow stats initialization step.
+    """
+    def _check_delete_conditions(value, packet_count):
+        num_of_paths = len(self.discovery.paths)
+        num_of_nodes = len(self.discovery.network.nodes())
+        
+        if (value >= packet_count and 
+           (self.delete_count < num_of_paths*num_of_nodes)):
+            datapath = ev.msg.datapath
+            ofproto = datapath.ofproto
+            parser = datapath.ofproto_parser
+            match = parser.OFPMatch()
+            inst = []
+            self._delete_flows(datapath, ofproto.OFPTT_ALL, match, inst)
+            self.delete_flows = True
+            self.delete_count += 1
+    """
+        Deletes all flows for the datapath according to the table_id, match
+        and instructions arguments.
+    """
+    def _delete_flows(self, datapath, table_id, match, instructions):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        flow_mod = parser.OFPFlowMod(
+                                     datapath=datapath,
+                                     cookie=2,
+                                     cookie_mask=0xFFFFFFFFFFFFFFFF,
+                                     table_id=table_id,
+                                     command=ofproto.OFPFC_DELETE,
+                                     out_port=ofproto.OFPP_ANY,
+                                     out_group=ofproto.OFPG_ANY
+                                    )
+        datapath.send_msg(flow_mod)
+
+    """
+        Loop through all switches and delete the flows for each one.
+    """
+    def _delete_all_flows(self):
+        for dpid in self.datapaths:
+            datapath = self.datapaths[dpid]
+            ofproto = datapath.ofproto
+            parser = datapath.ofproto_parser
+            match = parser.OFPMatch()
+            instructions = []
+            self._delete_flows(datapath, ofproto.OFPTT_ALL, match, instructions)
+    
+    """
+        Calculate the link bandwidth and save it to the network graph
+    """
     def _save_link_bw(self):
         links = self.discovery.link_to_port
         for link in links:
@@ -205,15 +271,18 @@ class NetworkMetrics(app_manager.RyuApp):
                                                prev_stats[-1][4],
                                                prev_stats[-2][3], 
                                                prev_stats[-2][4]) 
-                speed = self._get_speed(
+                throughput = self._get_throughput(
                     self.port_stats[src_switch, src_port][-1][0] + 
                     self.port_stats[src_switch, src_port][-1][1],
                     prev_bytes, period)
                 
-                capacity = 500000
-                self.discovery.network[src_switch][dst_switch]['BW'] = (
-                                            self._get_free_bw(capacity, speed))
-    
+                capacity = 10000
+                available_bw = self._get_free_bw(capacity, throughput)
+                self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
+   
+    """
+        Calculate link packet loss and save it the network graph
+    """ 
     def _save_link_pl(self):
         links = self.discovery.link_to_port
         for link in links:
@@ -235,9 +304,18 @@ class NetworkMetrics(app_manager.RyuApp):
                 if tx_packets == 0: 
                     pl = 0
                 else:
+ 
                     pl = (tx_packets - rx_packets)/tx_packets
                 self.discovery.network[src_switch][dst_switch]['PL'] = pl
                 
+    """
+        A function for saving stats to a given dictionary.
+    
+        _dict: The dictionary to save the value to.
+        key: The key associated with the value
+        value: The data to save to the dictionary
+        length: The max length of the value list
+    """
     def _save_stats(self, _dict, key, value, length):
         if key not in _dict:
             _dict[key] = []
@@ -246,30 +324,59 @@ class NetworkMetrics(app_manager.RyuApp):
         if len(_dict[key]) > length:
             _dict[key].pop(0)
 
-    def _get_free_bw(self, capacity, speed):
-        # BW:Mbit/s
-        return max(capacity/10**3 - speed * 8/10**6, 0)
+    """
+        Calculate the available bandwidth in Mbps.
 
-    def _get_speed(self, now, pre, period):
+        capacity: The maximum bw of the link
+        throughput: The current throughput of the link
+    """
+    def _get_free_bw(self, capacity, throughput):
+        return max(capacity/10**3 - throughput * 8/10**6, 0)
+
+    """
+        Calculate the throughput in bps
+        
+        now: Current number of bytes
+        pre: Previous number of bytes
+        period: The period of time between the current and previous bytes.
+    """
+    def _get_throughput(self, now, pre, period):
         if period:
             return (now - pre) / (period)
         else:
             return 0
- 
+
+    """
+        calculates the time 
+    """ 
     def _get_time(self, sec, nsec):
         return sec + nsec / (10 ** 9)
 
+    """
+        Calculates the period between two times.
+        
+        n_sec: Current time in seconds
+        n_nsec: Time in nanoseconds since n_sec (n_sec + n_nsec = Current time)
+        p_sec: Previous time in seconds
+        p_nsec: Time in nanoseconds since p_sec (p_sec + p_nsec = Previous time)
+    """
     def _get_period(self, n_sec, n_nsec, p_sec, p_nsec):
-        return self._get_time(n_sec, n_nsec) - self._get_time(p_sec, p_nsec)
+        period = self._get_time(n_sec, n_nsec) - self._get_time(p_sec, p_nsec)
+        return max(period, 0) 
 
+    """
+        Get the metrics for the links along the given path.
+    """
     def get_path_metrics(self, path):
-        """  example path : [1, 2, 4, 5]""" 
+        """  example path : [h1, 1, 2, 4, 5, h2]""" 
         metrics = []
         path_bw = []
         path_pl = []
         path_delay = []
         index = 1
+        # Create a copy of the path as to not alter the original path.
         route = copy.copy(path)
+        # Remove the hosts from the path list.
         route.pop(0)
         route.pop(-1)
         if len(self.discovery.network) == 0:
@@ -287,13 +394,14 @@ class NetworkMetrics(app_manager.RyuApp):
         metrics = metrics + path_bw + path_delay + path_pl
         return metrics
 
+    """
+        Handles the incoming packets.
+    """
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def packet_in_handler(self, ev):
-        """
-            Parsing LLDP packet and get the delay of link.
-        """
+    def _packet_in_handler(self, ev):
         msg = ev.msg
         try:
+            # Parsing LLDP packet and get the delay of link.
             src_dpid, src_port_no = LLDPPacket.lldp_parse(msg.data)
             dpid = msg.datapath.id
             if self.sw_module is None:
@@ -307,20 +415,25 @@ class NetworkMetrics(app_manager.RyuApp):
         except LLDPPacket.LLDPUnknownFormat as e:
             return
 
-    def show_delay_statis(self):
+    """
+        Display the link metrics on the terminal.
+    """
+    def _show_link_metrics(self):
         if setting.TOSHOW and self.discovery is not None:
-            self.logger.info("\nsrc   dst      delay (ms)")
-            self.logger.info("---------------------------")
+            self.logger.info("\nsrc   dst      Packet loss (%)"
+                             "  Delay (ms)  Bandwidth (Mbps)")
+            self.logger.info("--------------------------------"
+                             "------------------------------")
             for src in self.discovery.network:
                 for dst in self.discovery.network[src]:
                     if src == dst:
                         pass
                     else:
-                        delay = self.discovery.network[src][dst]['delay']
-                        self.logger.info(" %s <-> %s : \t%.3f" % 
-                                        (src, dst, delay))
-
-    def show_metrics(self):
-        dictionary = nx.to_dict_of_dicts(self.discovery.network)
-        pretty = json.dumps(dictionary, indent=4)
-        print(pretty)
+                        if 'PL' in self.discovery.network[src][dst]:
+                            pl = self.discovery.network[src][dst]['PL']
+                            delay = self.discovery.network[src][dst]['delay']
+                            bw = self.discovery.network[src][dst]['BW']
+                            if pl == 0:
+                                continue
+                            self.logger.info(" %s <-> %s : \t%.5f \t%.5f \t%.5f"
+                                             %(src, dst, pl*100, delay, bw))

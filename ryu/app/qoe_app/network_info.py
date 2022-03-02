@@ -2,9 +2,12 @@ from ryu.base import app_manager
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 import networkx as nx
-from ryu.topology.api import get_switch, get_link
+from ryu.topology.api import get_switch, get_link, get_host
 from ryu.topology import event, switches
 
+"""
+    A class for getting and maintaining an accurate view of the network topology.
+"""
 class NetworkInfo(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -15,15 +18,20 @@ class NetworkInfo(app_manager.RyuApp):
         self.topology_api_app = self
         self.links = []
         self.link_to_port = {} 
-
+        self.hosts = set()
+        self.paths = []
+        self.h1 = ''
+        self.h2 = ''
+    
+    """
+        Gets the topology information and creates the network graph object.
+    """
     def get_topo(self, ev):
-     #   print ("topology changed!!!!!!!!!!!!!!!!!!11")
         switch_list = get_switch(self.topology_api_app, None)
         self.switches = [switch.dp.id for switch in switch_list]
         self.network.add_nodes_from(self.switches)
 
         link_list = get_link(self.topology_api_app, None)
-     #   print("******************link list are:***********",link_list)
         self.links = [(link.src.dpid, link.dst.dpid, {'port':link.src.port_no}) for link in link_list]
         self.network.add_edges_from(self.links)
         self.links = [(link.dst.dpid, link.src.dpid, {'port':link.dst.port_no}) for link in link_list]
@@ -33,16 +41,61 @@ class NetworkInfo(app_manager.RyuApp):
         self.initialize_metrics() 
         return self.network
 
+    """
+        Adds the host information to the network graph and updates the h1 and h2 parameters that are used
+        in the _get_paths function below.
+    """
+    def add_host(self, ev):
+        host_list = get_host(self.topology_api_app, None)
+        links = [(host.port.dpid, host.mac, {'port':host.port.port_no}) for host in host_list]
+        for link in links:
+            if link[0] == 1 and link[2]['port'] == 1 and not self.h1 :
+                self.h1 = link[1]
+                host_link = [link]
+                self.network.add_edges_from(host_link)
+                self.network.add_edge(link[1], link[0])
+            elif link[0] == 3 and link[2]['port'] == 1 and not self.h2:
+                self.h2 = link[1]
+                host_link = [link]
+                self.network.add_edges_from(host_link)
+                self.network.add_edge(link[1], link[0])
+    """
+        Get the paths between the two the hosts from the network graph
+    """
+    def _get_paths(self):
+        try:
+            self.paths = list(nx.shortest_simple_paths(self.network, source=self.h1,
+                                  target=self.h2))
+        except ValueError as e:
+                print(e)
+    
+    """
+        Remove a switch from the network graph
+    """
+    def delete_switch(self, dpid):
+        if dpid in self.network.nodes():
+            self.network.remove_node(dpid)
+        return self.network 
+
+    """
+        Clear the network graph
+    """
+    def clear_graph(self):
+        return self.network.clear()
+ 
+    """
+        Create a list of the links and the ports connecting the links
+    """
     def create_interior_links(self, link_list):
-        """
-            Create a list of the links and the ports connecting the links
-        """
         for link in link_list:
             src = link.src
             dst = link.dst
             self.link_to_port[
                 (src.dpid, dst.dpid)] = (src.port_no, dst.port_no)
 
+    """
+        A function for initializing the metric keys in the network graph
+    """
     def initialize_metrics(self):
         keys = set(['BW', 'delay', 'PL'])
         for link in self.network.edges():
