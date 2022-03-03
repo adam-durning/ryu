@@ -38,7 +38,9 @@ class NetworkMetrics(app_manager.RyuApp):
         self.port_stats = {}
         self.flow_stats = {}
         self.delete_flows = False
-        self.delete_count = 3
+        self.delete_count = 1000
+        self.initial_transmission = False
+        self.initial_packets = 2000
         self.measure_thread = hub.spawn(self._detector)
     
     """
@@ -73,7 +75,7 @@ class NetworkMetrics(app_manager.RyuApp):
             self._save_link_pl() 
             self._save_link_bw() 
             self._show_link_metrics()
-            hub.sleep(setting.DELAY_DETECTING_PERIOD)
+            hub.sleep(setting.METRIC_PERIOD)
 
     """
         This fucntion sends the flow and port stats requests for each datapath.
@@ -93,6 +95,7 @@ class NetworkMetrics(app_manager.RyuApp):
         Function for sending and echo request to calculate link delay.
     """
     def _send_echo_request(self):
+        if not self.datapaths: return
         for datapath in self.datapaths.values():
             parser = datapath.ofproto_parser
             echo_req = parser.OFPEchoRequest(datapath, 
@@ -197,13 +200,23 @@ class NetworkMetrics(app_manager.RyuApp):
         datapath = ev.msg.datapath
         dpid = datapath.id
         self.flow_stats.setdefault(dpid, {})
-        for stat in sorted([flow for flow in body if flow.priority == 1],
-                           key=lambda flow: (flow.match.get('in_port'),
-                                             flow.match.get('ipv4_dst'))):
-            key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
-            value = (stat.packet_count)
-            self._save_stats(self.flow_stats[dpid], key, value, 1)
-            self._check_delete_conditions(datapath, value, 1000)
+        if self.initial_transmission:
+            for stat in sorted([flow for flow in body if flow.priority == 1],
+                               key=lambda flow: (flow.match.get('in_port'),
+                                                 flow.match.get('ipv4_dst'),
+                                                 flow.match.get('icmpv4_type'))):
+                key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
+                value = (stat.packet_count)
+                self._save_stats(self.flow_stats[dpid], key, value, 1)
+                self._check_delete_conditions(datapath, value, self.initial_packets)
+        else: 
+            for stat in sorted([flow for flow in body if flow.priority == 1],
+                               key=lambda flow: (flow.match.get('in_port'),
+                                                 flow.match.get('ipv4_dst'))):
+                key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
+                value = (stat.packet_count)
+                self._save_stats(self.flow_stats[dpid], key, value, 1)
+                self._check_delete_conditions(datapath, value, self.initial_packets)
     
     """
         Checks if the conditions for deleting the flow stats are met.
@@ -212,9 +225,9 @@ class NetworkMetrics(app_manager.RyuApp):
     def _check_delete_conditions(self, datapath, value, packet_count):
         num_of_paths = len(self.discovery.paths)
         num_of_nodes = len(self.discovery.network.nodes())
-        
+        num_hosts = (num_of_paths*2) - 1 
         if (value >= packet_count and 
-           (self.delete_count < num_of_paths*num_of_nodes)):
+           (self.delete_count < num_of_paths*num_of_nodes - num_hosts)):
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
             match = parser.OFPMatch()
@@ -262,7 +275,7 @@ class NetworkMetrics(app_manager.RyuApp):
             dst_switch = link[1]
             src_port = links[link][0]
             prev_bytes = 0
-            period = setting.DELAY_DETECTING_PERIOD
+            period = setting.METRIC_PERIOD
             if len(self.port_stats) != 0:
                 prev_stats = self.port_stats[src_switch, src_port]
                 if len(prev_stats) > 1:
@@ -278,7 +291,8 @@ class NetworkMetrics(app_manager.RyuApp):
                 
                 capacity = 10000
                 available_bw = self._get_free_bw(capacity, throughput)
-                self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
+                if self.discovery.network:
+                    self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
    
     """
         Calculate link packet loss and save it the network graph
@@ -304,9 +318,9 @@ class NetworkMetrics(app_manager.RyuApp):
                 if tx_packets == 0: 
                     pl = 0
                 else:
- 
                     pl = (tx_packets - rx_packets)/tx_packets
-                self.discovery.network[src_switch][dst_switch]['PL'] = pl
+                if self.discovery.network:
+                    self.discovery.network[src_switch][dst_switch]['PL'] = pl*100
                 
     """
         A function for saving stats to a given dictionary.
@@ -436,4 +450,4 @@ class NetworkMetrics(app_manager.RyuApp):
                             if pl == 0:
                                 continue
                             self.logger.info(" %s <-> %s : \t%.5f \t%.5f \t%.5f"
-                                             %(src, dst, pl*100, delay, bw))
+                                             %(src, dst, pl, delay, bw))
