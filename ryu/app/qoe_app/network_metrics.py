@@ -37,10 +37,10 @@ class NetworkMetrics(app_manager.RyuApp):
         self.free_bandwidth = {}
         self.port_stats = {}
         self.flow_stats = {}
-        self.delete_flows = False
-        self.delete_count = 1000
-        self.initial_transmission = False
-        self.initial_packets = 2000
+        #self.delete_flows = False
+        #self.delete_count = 1000
+        #self.initial_transmission = False
+        #self.initial_packets = 2000
         self.measure_thread = hub.spawn(self._detector)
     
     """
@@ -95,19 +95,21 @@ class NetworkMetrics(app_manager.RyuApp):
         Function for sending and echo request to calculate link delay.
     """
     def _send_echo_request(self):
-        if not self.datapaths: return
-        for datapath in self.datapaths.values():
-            parser = datapath.ofproto_parser
-            echo_req = parser.OFPEchoRequest(datapath, 
-                                             data=bytes("%.12f"%time.time(), 
-                                                        'utf-8'))
-            datapath.send_msg(echo_req)
-            # Important! Don't send echo request together, Because it will
-            # generate a lot of echo reply almost in the same time.
-            # which will generate a lot of delay of waiting in queue
-            # when processing echo reply in _echo_reply_handler.
+        try:
+            for datapath in self.datapaths.values():
+                parser = datapath.ofproto_parser
+                echo_req = parser.OFPEchoRequest(datapath, 
+                                                 data=bytes("%.12f"%time.time(), 
+                                                            'utf-8'))
+                datapath.send_msg(echo_req)
+                # Important! Don't send echo request together, Because it will
+                # generate a lot of echo reply almost in the same time.
+                # which will generate a lot of delay of waiting in queue
+                # when processing echo reply in _echo_reply_handler.
 
-            hub.sleep(self.sending_echo_request_interval)
+                hub.sleep(self.sending_echo_request_interval)
+        except:
+            print("Echo Request Failed")
 
     """
         Function that handles the echo replies. The echo latency of the links is
@@ -200,41 +202,31 @@ class NetworkMetrics(app_manager.RyuApp):
         datapath = ev.msg.datapath
         dpid = datapath.id
         self.flow_stats.setdefault(dpid, {})
-        if self.initial_transmission:
-            for stat in sorted([flow for flow in body if flow.priority == 1],
-                               key=lambda flow: (flow.match.get('in_port'),
-                                                 flow.match.get('ipv4_dst'),
-                                                 flow.match.get('icmpv4_type'))):
-                key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
-                value = (stat.packet_count)
-                self._save_stats(self.flow_stats[dpid], key, value, 1)
-                self._check_delete_conditions(datapath, value, self.initial_packets)
-        else: 
-            for stat in sorted([flow for flow in body if flow.priority == 1],
-                               key=lambda flow: (flow.match.get('in_port'),
-                                                 flow.match.get('ipv4_dst'))):
-                key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
-                value = (stat.packet_count)
-                self._save_stats(self.flow_stats[dpid], key, value, 1)
-                self._check_delete_conditions(datapath, value, self.initial_packets)
+        for stat in sorted([flow for flow in body if flow.priority == 1],
+                           key=lambda flow: (flow.match.get('in_port'),
+                                             flow.match.get('ipv4_dst'))):
+            key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
+            value = (stat.packet_count)
+            self._save_stats(self.flow_stats[dpid], key, value, 1)
+            #self._check_delete_conditions(datapath, value, self.initial_packets)
     
-    """
-        Checks if the conditions for deleting the flow stats are met.
-        This is only used in the flow stats initialization step.
-    """
-    def _check_delete_conditions(self, datapath, value, packet_count):
-        num_of_paths = len(self.discovery.paths)
-        num_of_nodes = len(self.discovery.network.nodes())
-        num_hosts = (num_of_paths*2) - 1 
-        if (value >= packet_count and 
-           (self.delete_count < num_of_paths*num_of_nodes - num_hosts)):
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
-            match = parser.OFPMatch()
-            inst = []
-            self._delete_flows(datapath, ofproto.OFPTT_ALL, match, inst)
-            self.delete_flows = True
-            self.delete_count += 1
+#    """
+#        Checks if the conditions for deleting the flow stats are met.
+#        This is only used in the flow stats initialization step.
+#    """
+#    def _check_delete_conditions(self, datapath, value, packet_count):
+#        num_of_paths = len(self.discovery.paths)
+#        num_of_nodes = len(self.discovery.network.nodes())
+#        num_hosts = (num_of_paths*2) - 1 
+#        if (value >= packet_count and 
+#           (self.delete_count < num_of_paths*num_of_nodes - num_hosts)):
+#            ofproto = datapath.ofproto
+#            parser = datapath.ofproto_parser
+#            match = parser.OFPMatch()
+#            inst = []
+#            self._delete_flows(datapath, ofproto.OFPTT_ALL, match, inst)
+#            self.delete_flows = True
+#            self.delete_count += 1
     """
         Deletes all flows for the datapath according to the table_id, match
         and instructions arguments.
@@ -289,7 +281,7 @@ class NetworkMetrics(app_manager.RyuApp):
                     self.port_stats[src_switch, src_port][-1][1],
                     prev_bytes, period)
                 
-                capacity = 10000
+                capacity = 500
                 available_bw = self._get_free_bw(capacity, throughput)
                 if self.discovery.network:
                     self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
@@ -447,7 +439,7 @@ class NetworkMetrics(app_manager.RyuApp):
                             pl = self.discovery.network[src][dst]['PL']
                             delay = self.discovery.network[src][dst]['delay']
                             bw = self.discovery.network[src][dst]['BW']
-                            if pl == 0:
+                            if isinstance(src, str) or isinstance(dst, str):
                                 continue
                             self.logger.info(" %s <-> %s : \t%.5f \t%.5f \t%.5f"
                                              %(src, dst, pl, delay, bw))

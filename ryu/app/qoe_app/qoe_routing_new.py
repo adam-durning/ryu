@@ -16,7 +16,7 @@ from ryu.controller.handler import CONFIG_DISPATCHER , MAIN_DISPATCHER, DEAD_DIS
 from ryu.controller.handler import set_ev_cls
 from ryu.controller import dpset
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.packet import packet, arp, ipv6, ipv4
+from ryu.lib.packet import packet, arp, ipv6, ipv4, icmp
 from ryu.lib.packet import ethernet, ether_types
 from ryu.topology import event
 from ryu.topology.switches import Switches
@@ -33,6 +33,8 @@ import openpyxl as op
 import pandas
 from collections import defaultdict
 from ryu.lib import hub
+import csv
+import copy
 
 class QoeForwarding(app_manager.RyuApp):
     """
@@ -69,7 +71,8 @@ class QoeForwarding(app_manager.RyuApp):
         self.initialize_thread = hub.spawn(self._initialize_flow_stats)
         self.selected_path = []
         self.path_num = 0
-        self.packet_count = {}
+        self.delete_flows = False
+        self.sample_metrics = []
         ############################################################################################
 
     """
@@ -82,17 +85,19 @@ class QoeForwarding(app_manager.RyuApp):
         while self.initialize_flow_stats:
             # self.delay_detector.delete_flows is updated to True when the flows for the current path
             # have been deleted. We then update the path number in order to transmit over the next path.
-            if self.delay_detector.delete_flows is True:
+            if self.delete_flows is True:
                 self.delay_detector._delete_all_flows()
                 self.path_num += 1
                 print("########## Changing Paths ##########")
-                self.delay_detector.delete_flows = False
+                self.delete_flows = False
                 # If the path number is the same as the number of paths then we have transmitted over all paths
                 # and this inialization step is over.
                 if self.path_num == len(self.network_info.paths):
                     print("########## Initialize Period Over ##########")
                     self.initialize_flow_stats = False
-                    self.delay_detector.delete_count = 1000
+                    #self.delay_detector.initial_transmission = False
+                    self.delete_flows = False    
+                    #self.delay_detector.delete_count = 1000
             hub.sleep(2)
 
     """
@@ -110,6 +115,13 @@ class QoeForwarding(app_manager.RyuApp):
             if datapath.id in self.datapaths:
                 self.logger.debug('unregister datapath: %016x', datapath.id)
                 del self.datapaths[datapath.id]
+                if not self.datapaths:
+                    with open('./data/sample_metrics.csv', 'a') as f:
+                        writer = csv.writer(f)
+                        for row in self.sample_metrics:
+                            writer.writerow(row)
+                        f.close()
+                    self.network_info.clear_graph()
     """
         Adds the table-miss flows to the switches.
     """
@@ -210,20 +222,39 @@ class QoeForwarding(app_manager.RyuApp):
         Returns the path with the best QoE score.
     """
     def select_path(self, src, dst, graph):
-        qoe_list=[]
-        link_metrics =[]
-        self.graph  =  graph
-        self.path_list =  list(nx.shortest_simple_paths(graph, source=src,
+        qoe_list = []
+        link_metrics = {}
+        self.graph = graph
+        self.path_list = list(nx.shortest_simple_paths(graph, source=src,
                                              target=dst))                            
         self.model = self.ml_model.filename
-        i = 1
-        for path in self.path_list:
-            link_metrics = self.delay_detector.get_path_metrics(path)
-            qoe_v = self.call_ml(link_metrics,'finalized_model.sav')
-            qoe_list.append(qoe_v)
-            i+=1
-        
-        self.selected_path = self.path_list[qoe_list.index(max(qoe_list))]  
+        for (path_num, path) in enumerate(self.path_list):
+            link_metrics[path_num] = self.delay_detector.get_path_metrics(path)
+            if len(path) == 5:
+                qoe_v = self.call_ml(link_metrics[path_num],'finalized_model1.sav')
+                qoe_list.append(qoe_v)
+                print("QoE score for 2 link path is %s" % str(qoe_v))
+            elif len(path) == 6:
+                qoe_v = self.call_ml(link_metrics[path_num],'finalized_model2.sav')
+                qoe_list.append(qoe_v)
+                print("QoE score for 3 link path is %s" % str(qoe_v))
+            elif len(path) == 7:
+                qoe_v = self.call_ml(link_metrics[path_num],'finalized_model3.sav')
+                qoe_list.append(qoe_v)
+                print("QoE score for 4 link path is %s" % str(qoe_v))
+            else:
+                print("ML model can only predict QoE for paths that have between 2 and 4 links.")
+                print("Longer paths will be ignored.")
+
+        qoe_index = qoe_list.index(max(qoe_list)) 
+        self.selected_path = self.path_list[qoe_index]
+        tmp_list = copy.copy(link_metrics[qoe_index])
+        tmp_list.append(max(qoe_list)[0])
+        self.sample_metrics.append(tmp_list)
+        #self.sample_metrics.append(metric for metric in link_metrics[qoe_index])
+        #self.sample_metrics.append(max(qoe_list)[0])  
+        #self.sample_metrics.append(' ')
+        print("The selected path is %s" % str(qoe_list.index(max(qoe_list))+1))
         return self.selected_path
 
     """
@@ -311,23 +342,28 @@ class QoeForwarding(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         in_port = msg.match['in_port']
-
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
-
+        icmp_pkt = pkt.get_protocols(icmp.icmp)
         dst = eth.dst
         src = eth.src
+        if str(eth.dst) != self.network_info.h2 and str(eth.dst) != self.network_info.h1:
+            self.delete_flows = True
+            return
+        #print("Switch %s" % str(datapath.id))
+        #print("In Port: %s, Eth Dst: %s, ICMP type: %s" % (str(in_port),str(dst),str(pkt_type)))
         dpid = datapath.id
         self.selected_path = self._get_path(self.path_num, src, dst)
-        if dpid not in self.packet_count:
-            self.packet_count.setdefault(dpid, 0)
-        self.packet_count[dpid] += 1
+        #if dpid not in self.packet_count:
+        #    self.packet_count.setdefault(dpid, 0)
+        #self.packet_count[dpid] += 1
         next_hop = self.selected_path[self.selected_path.index(dpid)+1]
         out_port = self.network[dpid][next_hop]['port']
         actions = [parser.OFPActionOutput(out_port)]
 
         if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+            #print("Adding new flow")
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)#, type=pkt_type)
             self.add_flow(datapath, 1, match, actions, 2, 0xFFFFFFFFFFFFFFFF)
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
@@ -344,7 +380,7 @@ class QoeForwarding(app_manager.RyuApp):
     """    
     def _get_path(self, path_num, src, dst):
         paths = self.network_info.paths
-        print(paths)
+        #print(paths)
         if src == paths[path_num][0]:
             return paths[path_num]
         elif dst == paths[path_num][0]:

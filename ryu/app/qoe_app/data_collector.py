@@ -34,6 +34,7 @@ import pandas
 from collections import defaultdict
 from ryu.lib import hub
 import csv
+import copy
 
 class DataCollector(app_manager.RyuApp):
 
