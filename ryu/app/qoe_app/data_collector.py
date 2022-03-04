@@ -42,7 +42,7 @@ class DataCollector(app_manager.RyuApp):
     _CONTEXTS = {
         "network_info": network_info.NetworkInfo,
         "network_metrics": network_metrics.NetworkMetrics,
-        "ml_model": ml_models_applying.MlModles,
+        #"ml_model": ml_models_applying.MlModles,
         "dpset": dpset.DPSet
       }
 
@@ -57,7 +57,7 @@ class DataCollector(app_manager.RyuApp):
         self.paths = {}
         self.network_info= kwargs["network_info"]
         self.network = self.network_info.network
-        self.ml_model = kwargs["ml_model"]
+        #self.ml_model = kwargs["ml_model"]
         self.delay_detector = kwargs["network_metrics"]
         self.path_list = []
         self.datapaths = {}
@@ -154,12 +154,13 @@ class DataCollector(app_manager.RyuApp):
     def get_topology(self, ev):
         self.network = self.network_info.get_topo(ev)
     
-    """
-        When a host is added to the network then add the host information to the topology graph.
-    """
-    @set_ev_cls(event.EventHostAdd)
-    def host_added(self, ev):
-        self.network_info.add_host(ev)
+#    """
+#        When a host is added to the network then add the host information to the topology graph.
+#    """
+#    @set_ev_cls(event.EventHostAdd)
+#    def host_added(self, ev):
+#        print("Adding host")
+#        self.network_info.add_host(ev)
 
     #@set_ev_cls(event.EventSwitchLeave)
     #def _switch_leave(self, ev):
@@ -250,7 +251,6 @@ class DataCollector(app_manager.RyuApp):
  
             out_port = self.get_out_port(datapath, src, dst, in_port)
             actions = [parser.OFPActionOutput(out_port)]
-
             if out_port != ofproto.OFPP_FLOOD:
                 match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
                 self.add_flow(datapath, 1, match, actions, 2, 0xFFFFFFFFFFFFFFFF)

@@ -256,6 +256,7 @@ class NetworkMetrics(app_manager.RyuApp):
             match = parser.OFPMatch()
             instructions = []
             self._delete_flows(datapath, ofproto.OFPTT_ALL, match, instructions)
+        self.flow_stats.clear()
     
     """
         Calculate the link bandwidth and save it to the network graph
@@ -283,7 +284,8 @@ class NetworkMetrics(app_manager.RyuApp):
                 
                 capacity = 500
                 available_bw = self._get_free_bw(capacity, throughput)
-                if self.discovery.network:
+                if (src_switch in self.discovery.network and 
+                    dst_switch in self.discovery.network[src_switch]):
                     self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
    
     """
@@ -311,9 +313,10 @@ class NetworkMetrics(app_manager.RyuApp):
                     pl = 0
                 else:
                     pl = (tx_packets - rx_packets)/tx_packets
-                if self.discovery.network:
+                if (src_switch in self.discovery.network and 
+                    dst_switch in self.discovery.network[src_switch]):
                     self.discovery.network[src_switch][dst_switch]['PL'] = pl*100
-                
+
     """
         A function for saving stats to a given dictionary.
     
