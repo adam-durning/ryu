@@ -62,6 +62,7 @@ class DataCollector(app_manager.RyuApp):
         self.path_list = []
         self.datapaths = {}
         self.hosts = []
+        self.forward_path = []
         self.selected_path = []
 
     """
@@ -80,7 +81,7 @@ class DataCollector(app_manager.RyuApp):
                 self.logger.debug('unregister datapath: %016x', datapath.id)
                 del self.datapaths[datapath.id]
                 if not self.datapaths:
-                    metrics = self.delay_detector.get_path_metrics(self.selected_path) 
+                    metrics = self.delay_detector.get_path_metrics(self.forward_path) 
                     with open('./data/two_link_metrics.csv', 'a') as f:
                         writer = csv.writer(f)
                         writer.writerow(metrics)
@@ -154,13 +155,13 @@ class DataCollector(app_manager.RyuApp):
     def get_topology(self, ev):
         self.network = self.network_info.get_topo(ev)
     
-#    """
-#        When a host is added to the network then add the host information to the topology graph.
-#    """
-#    @set_ev_cls(event.EventHostAdd)
-#    def host_added(self, ev):
-#        print("Adding host")
-#        self.network_info.add_host(ev)
+    """
+        When a host is added to the network then add the host information to the topology graph.
+    """
+    @set_ev_cls(event.EventHostAdd)
+    def host_added(self, ev):
+        print("Adding host")
+        self.network_info.add_host(ev)
 
     #@set_ev_cls(event.EventSwitchLeave)
     #def _switch_leave(self, ev):
@@ -197,6 +198,8 @@ class DataCollector(app_manager.RyuApp):
         self.graph  =  graph
         self.path_list =  list(nx.shortest_simple_paths(graph, source=src,
                                              target=dst))                            
+        if '00:00:00:00:00:01' == str(src):
+            self.forward_path = self.path_list[0]
         self.selected_path = self.path_list[0]  
         return self.selected_path
 

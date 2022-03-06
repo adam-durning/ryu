@@ -284,9 +284,12 @@ class NetworkMetrics(app_manager.RyuApp):
                 
                 capacity = 500
                 available_bw = self._get_free_bw(capacity, throughput)
-                if (src_switch in self.discovery.network and 
-                    dst_switch in self.discovery.network[src_switch]):
+                #if (src_switch in self.discovery.network and 
+                #    dst_switch in self.discovery.network[src_switch]):
+                try:
                     self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
+                except:
+                    print("Network Graph has been cleared")
    
     """
         Calculate link packet loss and save it the network graph
@@ -313,9 +316,12 @@ class NetworkMetrics(app_manager.RyuApp):
                     pl = 0
                 else:
                     pl = (tx_packets - rx_packets)/tx_packets
-                if (src_switch in self.discovery.network and 
-                    dst_switch in self.discovery.network[src_switch]):
+                #if (src_switch in self.discovery.network and 
+                #    dst_switch in self.discovery.network[src_switch]):
+                try:
                     self.discovery.network[src_switch][dst_switch]['PL'] = pl*100
+                except:
+                    print("Network graph has been cleared")
 
     """
         A function for saving stats to a given dictionary.

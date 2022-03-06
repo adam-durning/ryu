@@ -43,6 +43,7 @@ class NetworkDiscovery(app_manager.RyuApp):
             dst = link.dst
             self.link_to_port[
                 (src.dpid, dst.dpid)] = (src.port_no, dst.port_no)
+        print(len(link_list))
 
     def get_network(self, link_list):
         """

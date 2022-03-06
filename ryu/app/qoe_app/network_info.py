@@ -21,10 +21,11 @@ class NetworkInfo(app_manager.RyuApp):
         self.link_to_port = {} 
         self.hosts = []
         self.paths = []
-        self.h1 = (1,'00:00:00:00:00:01',{'port':1})
-        self.h2 = (3,'00:00:00:00:00:02',{'port':1})
-        #self.h1_link = []
-        #self.h2_link = []
+        self.h1 = ''#(1,'00:00:00:00:00:01',{'port':1})
+        self.h2 = ''#(3,'00:00:00:00:00:02',{'port':1})
+        #self.host_links = [(1,'00:00:00:00:00:01',{'port':1}), (3,'00:00:00:00:00:02',{'port':1})]
+        self.h1_link = []
+        self.h2_link = []
         #self.prev_h1 = ''
         #self.prev_h2 = ''
     
@@ -42,10 +43,10 @@ class NetworkInfo(app_manager.RyuApp):
         self.links = [(link.dst.dpid, link.src.dpid, {'port':link.dst.port_no}) for link in link_list]
         self.network.add_edges_from(self.links)
 
-        self.network.add_edges_from([self.h1])
-        self.network.add_edges_from([self.h2])
-        self.network.add_edge(self.h1[1], self.h1[0])
-        self.network.add_edge(self.h2[1], self.h2[0])
+        #self.network.add_edges_from(self.host_links)
+        #self.network.add_edges_from(self.h2)
+        #self.network.add_edge(self.h1[1], self.h1[0])
+        #self.network.add_edge(self.h2[1], self.h2[0])
 
         self.create_interior_links(link_list)
         self.initialize_metrics() 
@@ -85,8 +86,11 @@ class NetworkInfo(app_manager.RyuApp):
             #if self.h2 not in self.network:
             #    self.network.add_edges_from(self.h2_link)
             #    self.network.add_edge(self.h2_link[0][1], self.h2_link[0][0])
-            self.paths = list(nx.shortest_simple_paths(self.network, source=self.h1,
-                                  target=self.h2))
+            
+            self.paths = list(nx.shortest_simple_paths(self.network, source='00:00:00:00:00:01',
+                                  target='00:00:00:00:00:02'))
+            #self.paths = list(nx.shortest_simple_paths(self.network, source=self.h1,
+            #                      target=self.h2))
         except ValueError as e:
                 print(e)
     

@@ -192,9 +192,9 @@ class QoeForwarding(app_manager.RyuApp):
     """
         When a host is added to the network then add the host information to the topology graph.
     """
-    @set_ev_cls(event.EventHostAdd)
-    def host_added(self, ev):
-        self.network_info.add_host(ev)
+    #@set_ev_cls(event.EventHostAdd)
+    #def host_added(self, ev):
+    #    self.network_info.add_host(ev)
  
     """
         Calling the ML model.
