@@ -21,13 +21,10 @@ class NetworkInfo(app_manager.RyuApp):
         self.link_to_port = {} 
         self.hosts = []
         self.paths = []
-        self.h1 = ''#(1,'00:00:00:00:00:01',{'port':1})
-        self.h2 = ''#(3,'00:00:00:00:00:02',{'port':1})
-        #self.host_links = [(1,'00:00:00:00:00:01',{'port':1}), (3,'00:00:00:00:00:02',{'port':1})]
+        self.h1 = ''
+        self.h2 = ''
         self.h1_link = []
         self.h2_link = []
-        #self.prev_h1 = ''
-        #self.prev_h2 = ''
     
     """
         Gets the topology information and creates the network graph object.
@@ -43,11 +40,6 @@ class NetworkInfo(app_manager.RyuApp):
         self.links = [(link.dst.dpid, link.src.dpid, {'port':link.dst.port_no}) for link in link_list]
         self.network.add_edges_from(self.links)
 
-        #self.network.add_edges_from(self.host_links)
-        #self.network.add_edges_from(self.h2)
-        #self.network.add_edge(self.h1[1], self.h1[0])
-        #self.network.add_edge(self.h2[1], self.h2[0])
-
         self.create_interior_links(link_list)
         self.initialize_metrics() 
         return self.network
@@ -57,36 +49,41 @@ class NetworkInfo(app_manager.RyuApp):
         in the _get_paths function below.
     """
     def add_host(self, ev):
-        host_list = get_host(self.topology_api_app, None)
-        links = [(host.port.dpid, host.mac, {'port':host.port.port_no}) for host in host_list]
-        self.hosts = [host for host in host_list]
-        for link in links:
-            if link[0] == 1 and link[2]['port'] == 1:# and not self.h1 :
-                #if link[1] == self.prev_h1:
-                #    continue
-                self.h1 = link[1]
-                self.h1_link = [link]
-                self.network.add_edges_from(self.h1_link)
-                self.network.add_edge(link[1], link[0])
-            elif link[0] == 3 and link[2]['port'] == 1:# and not self.h2:
-                #if link[1] == self.prev_h2:
-                #    continue
-                self.h2 = link[1]
-                self.h2_link = [link]
-                self.network.add_edges_from(self.h2_link)
-                self.network.add_edge(link[1], link[0])
+        #host_list = get_host(self.topology_api_app, None)
+        #links = [(host.port.dpid, host.mac, {'port':host.port.port_no}) for host in host_list]
+        #self.hosts = [host for host in host_list]
+        #
+        #if self.h1 and self.h2:
+        #    return
+        #for link in links:
+        #    if link[0] == 1 and link[2]['port'] == 1:# and not self.h1 :
+        #        self.h1 = link[1]
+        #        self.h1_link = [link]
+        #        self.network.add_edges_from(self.h1_link)
+        #        self.network.add_edge(link[1], link[0])
+        #    elif link[0] == 3 and link[2]['port'] == 1:# and not self.h2:
+        #        self.h2 = link[1]
+        #        self.h2_link = [link]
+        #        self.network.add_edges_from(self.h2_link)
+        #        self.network.add_edge(link[1], link[0])
+        
+        link = (1,'00:00:00:00:00:01',{'port':1})
+        self.h1 = link[1]
+        self.h1_link = [link]
+        self.network.add_edges_from(self.h1_link)
+        self.network.add_edge(link[1], link[0])
+
+        link = (3,'00:00:00:00:00:02',{'port':1})
+        self.h2 = link[1]
+        self.h2_link = [link]
+        self.network.add_edges_from(self.h2_link)
+        self.network.add_edge(link[1], link[0])
+
     """
         Get the paths between the two the hosts from the network graph
     """
     def _get_paths(self):
         try:
-            #if self.h1 not in self.network:
-            #    self.network.add_edges_from(self.h1_link)
-            #    self.network.add_edge(self.h1_link[0][1], self.h1_link[0][0])
-            #if self.h2 not in self.network:
-            #    self.network.add_edges_from(self.h2_link)
-            #    self.network.add_edge(self.h2_link[0][1], self.h2_link[0][0])
-            
             self.paths = list(nx.shortest_simple_paths(self.network, source='00:00:00:00:00:01',
                                   target='00:00:00:00:00:02'))
             #self.paths = list(nx.shortest_simple_paths(self.network, source=self.h1,
@@ -110,10 +107,8 @@ class NetworkInfo(app_manager.RyuApp):
         self.links = []
         self.link_to_port = {} 
         self.paths = []
-        #self.prev_h1 = copy.copy(self.h1)
-        #self.prev_h2 = copy.copy(self.h2)
-        #self.h1 = ''
-        #self.h2 = ''
+        self.h1 = ''
+        self.h2 = ''
         return self.network
  
     """

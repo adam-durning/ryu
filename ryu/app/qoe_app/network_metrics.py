@@ -37,10 +37,6 @@ class NetworkMetrics(app_manager.RyuApp):
         self.free_bandwidth = {}
         self.port_stats = {}
         self.flow_stats = {}
-        #self.delete_flows = False
-        #self.delete_count = 1000
-        #self.initial_transmission = False
-        #self.initial_packets = 2000
         self.measure_thread = hub.spawn(self._detector)
     
     """
@@ -184,7 +180,6 @@ class NetworkMetrics(app_manager.RyuApp):
         """
         body = ev.msg.body
         dpid = ev.msg.datapath.id
-        #self.stats['port'][dpid] = body
         for stat in sorted(body, key=attrgetter('port_no')):
             port_no = stat.port_no
             if port_no != ofproto_v1_3.OFPP_LOCAL:
@@ -284,8 +279,6 @@ class NetworkMetrics(app_manager.RyuApp):
                 
                 capacity = 500
                 available_bw = self._get_free_bw(capacity, throughput)
-                #if (src_switch in self.discovery.network and 
-                #    dst_switch in self.discovery.network[src_switch]):
                 try:
                     self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
                 except:
@@ -308,16 +301,16 @@ class NetworkMetrics(app_manager.RyuApp):
                     continue
                 for key in self.flow_stats[src_switch]:
                     if key[1] == src_port:
-                        tx_packets+= self.flow_stats[src_switch][key][-1]
+                        tx_packets = self.flow_stats[src_switch][key][-1]
+                        #print(str(key) + ': %s' % (str(tx_packets)))
                 for key in self.flow_stats[dst_switch]:
                     if key[0] == dst_port:
-                        rx_packets+= self.flow_stats[dst_switch][key][-1]    
+                        rx_packets = self.flow_stats[dst_switch][key][-1]    
                 if tx_packets == 0: 
                     pl = 0
                 else:
                     pl = (tx_packets - rx_packets)/tx_packets
-                #if (src_switch in self.discovery.network and 
-                #    dst_switch in self.discovery.network[src_switch]):
+                    print('pl for link (%s, %s): %s - %s/ %s = %s' % (str(src_switch), str(dst_switch), str(tx_packets), str(rx_packets), str(tx_packets), str(pl*100)))
                 try:
                     self.discovery.network[src_switch][dst_switch]['PL'] = pl*100
                 except:

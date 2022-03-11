@@ -1,6 +1,6 @@
 #-------------------------------------------------------------------------------
-# Name:        QoE Routing
-# Purpose:     Routes traffic using a QoE machine learning model
+# Name:        Data Collector
+# Purpose:     Controller for collecting link metrics to be used as training data for ML model.
 #
 # Author:      Adam Durning & Lei Wang
 #
@@ -23,7 +23,6 @@ from ryu.topology.switches import Switches
 import networkx as nx
 import signal
 import network_info, network_metrics
-import ml_models_applying
 from itertools import islice
 import pickle
 import pandas
@@ -42,7 +41,6 @@ class DataCollector(app_manager.RyuApp):
     _CONTEXTS = {
         "network_info": network_info.NetworkInfo,
         "network_metrics": network_metrics.NetworkMetrics,
-        #"ml_model": ml_models_applying.MlModles,
         "dpset": dpset.DPSet
       }
 
@@ -57,7 +55,6 @@ class DataCollector(app_manager.RyuApp):
         self.paths = {}
         self.network_info= kwargs["network_info"]
         self.network = self.network_info.network
-        #self.ml_model = kwargs["ml_model"]
         self.delay_detector = kwargs["network_metrics"]
         self.path_list = []
         self.datapaths = {}
@@ -160,13 +157,8 @@ class DataCollector(app_manager.RyuApp):
     """
     @set_ev_cls(event.EventHostAdd)
     def host_added(self, ev):
-        print("Adding host")
         self.network_info.add_host(ev)
 
-    #@set_ev_cls(event.EventSwitchLeave)
-    #def _switch_leave(self, ev):
-    #    
- 
     """
         Calling the ML model.
 
@@ -246,6 +238,8 @@ class DataCollector(app_manager.RyuApp):
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
         if isinstance(ip_pkt, ipv4.ipv4):
+            if '00:00:00:00:00:01' not in self.network_info.network:
+                self.network_info.add_host(0)
             src = eth.src
             dst = eth.dst
             dpid = datapath.id
