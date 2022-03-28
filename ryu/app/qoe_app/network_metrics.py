@@ -37,6 +37,7 @@ class NetworkMetrics(app_manager.RyuApp):
         self.free_bandwidth = {}
         self.port_stats = {}
         self.flow_stats = {}
+        self.capacity = {}
         self.measure_thread = hub.spawn(self._detector)
     
     """
@@ -163,7 +164,7 @@ class NetworkMetrics(app_manager.RyuApp):
                     if src == dst:
                         continue
                     delay = self._get_delay(src, dst)
-                    self.discovery.network[src][dst]['delay'] = delay - 1
+                    self.discovery.network[src][dst]['delay'] = delay
         except:
             if self.discovery is None:
                 self.discovery = lookup_service_brick('discovery')
@@ -252,7 +253,10 @@ class NetworkMetrics(app_manager.RyuApp):
             instructions = []
             self._delete_flows(datapath, ofproto.OFPTT_ALL, match, instructions)
         self.flow_stats.clear()
-    
+  
+    def set_capacity(self, bw_info):
+        self.capacity = bw_info
+  
     """
         Calculate the link bandwidth and save it to the network graph
     """
@@ -277,7 +281,10 @@ class NetworkMetrics(app_manager.RyuApp):
                     self.port_stats[src_switch, src_port][-1][1],
                     prev_bytes, period)
                 
-                capacity = 500
+                if self.capacity:
+                    capacity = self.capacity[src_switch][dst_switch]
+                else:
+                    capacity = 1e7 # Setting a default capacity of 10Gbps
                 available_bw = self._get_free_bw(capacity, throughput)
                 try:
                     self.discovery.network[src_switch][dst_switch]['BW'] = available_bw
@@ -297,7 +304,11 @@ class NetworkMetrics(app_manager.RyuApp):
                 rx_packets = 0
                 src_port = links[link][0]
                 dst_port = links[link][1]
-                if len(self.flow_stats[link[0]]) == 0:
+                try:
+                    if len(self.flow_stats[link[0]]) == 0:
+                        continue
+                except:
+                    print("Network graph has been cleared")
                     continue
                 for key in self.flow_stats[src_switch]:
                     if key[1] == src_port:
@@ -307,12 +318,14 @@ class NetworkMetrics(app_manager.RyuApp):
                     if key[0] == dst_port:
                         rx_packets = self.flow_stats[dst_switch][key][-1]    
                 if tx_packets == 0: 
+                    continue#pl = 0
+                elif rx_packets > tx_packets:
                     pl = 0
                 else:
-                    pl = (tx_packets - rx_packets)/tx_packets
-                    print('pl for link (%s, %s): %s - %s/ %s = %s' % (str(src_switch), str(dst_switch), str(tx_packets), str(rx_packets), str(tx_packets), str(pl*100)))
+                    pl = 100*(tx_packets - rx_packets)/tx_packets
+                    #print('pl for link (%s, %s): %s - %s/ %s = %s' % (str(src_switch), str(dst_switch), str(tx_packets), str(rx_packets), str(tx_packets), str(pl*100)))
                 try:
-                    self.discovery.network[src_switch][dst_switch]['PL'] = pl*100
+                    self.discovery.network[src_switch][dst_switch]['PL'] = pl
                 except:
                     print("Network graph has been cleared")
 

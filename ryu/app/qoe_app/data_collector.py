@@ -79,7 +79,7 @@ class DataCollector(app_manager.RyuApp):
                 del self.datapaths[datapath.id]
                 if not self.datapaths:
                     metrics = self.delay_detector.get_path_metrics(self.forward_path) 
-                    with open('./data/two_link_metrics.csv', 'a') as f:
+                    with open('./data/three_link_metrics_1499_1999.csv', 'a') as f:
                         writer = csv.writer(f)
                         writer.writerow(metrics)
                         f.close()
@@ -192,7 +192,9 @@ class DataCollector(app_manager.RyuApp):
                                              target=dst))                            
         if '00:00:00:00:00:01' == str(src):
             self.forward_path = self.path_list[0]
-        self.selected_path = self.path_list[0]  
+            self.selected_path = ['00:00:00:00:00:01', 1, 2, 3, 4, '00:00:00:00:00:02'] 
+        #self.selected_path = self.path_list[0]  
+        #print(self.selected_path)
         return self.selected_path
 
     """
@@ -236,6 +238,7 @@ class DataCollector(app_manager.RyuApp):
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols( ethernet.ethernet)[0]
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
+        arp_pkt = pkt.get_protocols(arp.arp)
 
         if isinstance(ip_pkt, ipv4.ipv4):
             if '00:00:00:00:00:01' not in self.network_info.network:
