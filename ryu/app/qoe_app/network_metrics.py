@@ -204,25 +204,7 @@ class NetworkMetrics(app_manager.RyuApp):
             key = (stat.match['in_port'], stat.instructions[0].actions[0].port)
             value = (stat.packet_count)
             self._save_stats(self.flow_stats[dpid], key, value, 1)
-            #self._check_delete_conditions(datapath, value, self.initial_packets)
-    
-#    """
-#        Checks if the conditions for deleting the flow stats are met.
-#        This is only used in the flow stats initialization step.
-#    """
-#    def _check_delete_conditions(self, datapath, value, packet_count):
-#        num_of_paths = len(self.discovery.paths)
-#        num_of_nodes = len(self.discovery.network.nodes())
-#        num_hosts = (num_of_paths*2) - 1 
-#        if (value >= packet_count and 
-#           (self.delete_count < num_of_paths*num_of_nodes - num_hosts)):
-#            ofproto = datapath.ofproto
-#            parser = datapath.ofproto_parser
-#            match = parser.OFPMatch()
-#            inst = []
-#            self._delete_flows(datapath, ofproto.OFPTT_ALL, match, inst)
-#            self.delete_flows = True
-#            self.delete_count += 1
+
     """
         Deletes all flows for the datapath according to the table_id, match
         and instructions arguments.
@@ -313,17 +295,15 @@ class NetworkMetrics(app_manager.RyuApp):
                 for key in self.flow_stats[src_switch]:
                     if key[1] == src_port:
                         tx_packets = self.flow_stats[src_switch][key][-1]
-                        #print(str(key) + ': %s' % (str(tx_packets)))
                 for key in self.flow_stats[dst_switch]:
                     if key[0] == dst_port:
                         rx_packets = self.flow_stats[dst_switch][key][-1]    
                 if tx_packets == 0: 
-                    continue#pl = 0
+                    continue
                 elif rx_packets > tx_packets:
                     pl = 0
                 else:
                     pl = 100*(tx_packets - rx_packets)/tx_packets
-                    #print('pl for link (%s, %s): %s - %s/ %s = %s' % (str(src_switch), str(dst_switch), str(tx_packets), str(rx_packets), str(tx_packets), str(pl*100)))
                 try:
                     self.discovery.network[src_switch][dst_switch]['PL'] = pl
                 except:
