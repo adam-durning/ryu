@@ -49,8 +49,7 @@ Topology Script
 ===============
 The script [three_paths_topo.py](https://github.com/adam-durning/ryu/blob/development_branch/ryu/app/qoe_app/mininet/three_path_topo.py) is a mininet script that generates the topology shown below. This script also contains functions for sending UDP packets with the [IPERF](https://iperf.fr/iperf-doc.php#doc) tool and for transmitting a video file with [VLC](https://www.videolan.org/vlc/download-ubuntu.html). The link metrics are passed to this script from [qoe_experiments.py](https://github.com/adam-durning/ryu/blob/development_branch/ryu/app/qoe_app/mininet/qoe_experiments.py).
 
-.. image:: topology.png
-  :width: 600pt
+![An image of a network topology with 3 linear paths](topology.png "Network Topology")
 
 
 How to run Simulations
