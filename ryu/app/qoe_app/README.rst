@@ -1,3 +1,7 @@
+:Authors:
+  Adam Durning, Lei Wang
+:Version: 1.0 on 18/04/2022
+
 QoE Routing
 ***********
 This is a ryu application that uses a machine learning model to predict the QoE (Quality of Experience) 
