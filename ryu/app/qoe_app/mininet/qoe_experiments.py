@@ -8,6 +8,7 @@ def read_metrics():
     for key in metrics_dict:
         with open('topo_info/%s_topoinfo.csv' % key, 'r') as f:
             reader = csv.reader(f)
+            headers = next(reader)
             metrics_dict[key].append([])
             for row in reader:
                 path_metrics = [float(el) for el in row]
