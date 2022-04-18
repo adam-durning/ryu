@@ -237,14 +237,15 @@ class QoeForwarding(app_manager.RyuApp):
     def read_in_bw_info(self):
         bw_dict = {}
         links = list(self.bw_df.keys())
+        num = self.exp_num - 1
         for link in links:
             src, dst = (int(el) for el in link.split('-'))
             if src not in bw_dict:
                 bw_dict[src] = {}
-            bw_dict[src][dst] = self.bw_df[link].iloc[[self.exp_num-1]][0]*1000
+            bw_dict[src][dst] = self.bw_df[link].iloc[[num]][num]*1000
             if dst not in bw_dict:
                 bw_dict[dst] = {}
-            bw_dict[dst][src] = self.bw_df[link].iloc[[self.exp_num-1]][0]*1000
+            bw_dict[dst][src] = self.bw_df[link].iloc[[num]][num]*1000
         self.network_metrics.set_capacity(bw_dict)
 
     """
