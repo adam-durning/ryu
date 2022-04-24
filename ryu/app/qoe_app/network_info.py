@@ -49,6 +49,13 @@ class NetworkInfo(app_manager.RyuApp):
         in the _get_paths function below.
     """
     def add_host(self, ev):
+        """
+            I noticed that sometimes Ryu was not picking up the HostAdd Event and therefore the host information
+            was not being added to the netowrk. The commented block of code below works, however, if you
+            are running multiple simulations one after another then I would recommend using the hard coded
+            version of adding the host information (uncommented code). If you are just running one simulation
+            then the commented code should be fine.
+        """
         #host_list = get_host(self.topology_api_app, None)
         #links = [(host.port.dpid, host.mac, {'port':host.port.port_no}) for host in host_list]
         #self.hosts = [host for host in host_list]
