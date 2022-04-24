@@ -30,7 +30,8 @@ the network. The network topology is stored in a networkx graph object. For more
 out the documentation here : https://networkx.org/ .
 
 Note: The latency mechanism used in this module is adapted from the implementation in https://github.com/muzixing/ryu/tree/master/ryu/app/network_awareness .
-This mechanism involves editing the topology/switches.py module. The instructions for this are available at the link mentioned.
+This mechanism involves editing the topology/switches.py module. This has already been done, however, if you would 
+like to see what these changes were, then checkout the previous link.
 
 network_metrics.py
 ******************
