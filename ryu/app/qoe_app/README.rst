@@ -27,7 +27,10 @@ network_info.py
 ***************
 This script gathers information about the network topology whenever a switch or link is added/deleted from
 the network. The network topology is stored in a networkx graph object. For more info on networkx, check 
-out the documentation here : https://networkx.org/
+out the documentation here : https://networkx.org/ .
+
+Note: The latency mechanism used in this module is adapted from the implementation in https://github.com/muzixing/ryu/tree/master/ryu/app/network_awareness .
+This mechanism involves editing the topology/switches.py module. The instructions for this are available at the link mentioned.
 
 network_metrics.py
 ******************
