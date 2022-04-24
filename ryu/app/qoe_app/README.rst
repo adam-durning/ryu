@@ -15,9 +15,12 @@ You will need to install the following packages to run the code in this project:
 
 Mininet - instructions are in the mininet directory.
 
-NetworkX - instructions here_.
+NetworkX - instructions_.
 
-.. _here: https://networkx.org/documentation/stable/install.html
+ML models - The machine learning models used in this project can be found here_.
+
+.. _here: https://drive.google.com/drive/folders/18Y67h2MTO8Orkq12O4FGxvl6hxyCdC5U?usp=sharing
+.. _instructions: https://networkx.org/documentation/stable/install.html
 
 
 network_info.py
