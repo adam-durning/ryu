@@ -6,8 +6,19 @@ QoE Routing
 ***********
 This is a ryu application that uses a machine learning model to predict the QoE (Quality of Experience) 
 score for each path in the network in order to route traffic so that the application's QoE is maximised.
+The application used in this project is a Video streaming application using VLC media player to transmit video
+data across the network.
 
-The application uses the following python scripts:
+Prerequisites
+*************
+You will need to install the following packages to run the code in this project:
+
+Mininet - instructions are in the mininet directory.
+
+NetworkX - instructions here_.
+
+.. _here: https://networkx.org/documentation/stable/install.html
+
 
 network_info.py
 ***************
@@ -25,5 +36,5 @@ qoe_routing.py
 **************
 This script is the main script for the controller. The other two modules described above are called in this
 script to provide the controller with the necessary information it needs for routing the traffic through the 
-network.
+network. 
 
